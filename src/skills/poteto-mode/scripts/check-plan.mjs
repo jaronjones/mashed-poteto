@@ -17,7 +17,8 @@ const SUB_BLOCKS = [
 	"Merge.",
 ];
 const PROGRAM_H3 = ["Arm the program", "Spawn owners", "PR mechanics", "Verdict and merge", "Boot recipe"];
-const PROGRAM_MARKERS = ["git show origin/main:", "/loop 1h", "status message"];
+// Substring, not "/loop 1h": harnesses without a native loop arm the same 1h tick through pstack-loop.
+const PROGRAM_MARKERS = ["git show origin/main:", "loop 1h", "status message"];
 const HOW_TO_READ_MARKERS = [
 	"One box is one unit of work",
 	"names the evidence",

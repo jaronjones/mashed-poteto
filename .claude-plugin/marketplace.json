@@ -1,0 +1,7 @@
+{
+  "name": "mashed-poteto",
+  "owner": { "name": "mashed-poteto" },
+  "plugins": [
+    { "name": "pstack", "source": "./dist/claude", "description": "pstack, ported from Cursor: rigorous agent workflows, principles, and multi-model review panels." }
+  ]
+}

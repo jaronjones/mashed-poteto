@@ -227,6 +227,21 @@ After posting, read the same source thread and verify the verdict appears under 
 
 If this run created a tracker issue and the verdict did not land, use the adapter's compensation action. Verify that the issue is canceled, closed, or deleted. If compensation cannot be verified, report the failure only in the automation run output.
 
+### Wake the repro route
+
+After a `bug` or `performance` verdict is verified under `SOURCE_THREAD_TS`, wake the configured repro route once. Skip this for `other` and for a verdict that did not land.
+
+POST only the frozen coordinates and the optional tracker URL. Read the key from the configured key file inside the command. Never print, echo, or log the key:
+
+```sh
+curl -fsS --max-time 8 -X POST "<routes.reproduce_url>" \
+  -H "Authorization: Bearer $(cat <routes.reproduce_key_file>)" \
+  -H "Content-Type: application/json" \
+  -d '{"source_channel_id":"<SOURCE_CHANNEL_ID>","ts":"<SOURCE_THREAD_TS>","thread_ts":"<SOURCE_THREAD_TS>","tracker_url":"<URL or empty>"}'
+```
+
+Expect HTTP 202. Make one try. If the key file is missing, the route is absent, or the POST fails, report it only in the automation run output. Never post about the handoff in Slack. The repro route still checks the marker in the thread, so this wake grants no trust on its own.
+
 ## 10. Watch one follow-up window
 
 Watch the source thread for the configured follow-up window, then stop.

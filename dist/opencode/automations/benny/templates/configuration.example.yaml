@@ -4,6 +4,14 @@ automations:
   triage_name: "benny-triage"
   reproduce_name: "benny-reproduce"
 
+routes:
+  harness: "claude"
+  slack_signing_secret_env: "BENNY_SLACK_SIGNING_SECRET"
+  triage_prompt_path: ".pstack/benny/triage-route-prompt.md"
+  reproduce_prompt_path: ".pstack/benny/reproduce-route-prompt.md"
+  reproduce_url: "http://127.0.0.1:8787/hooks/benny-reproduce"
+  reproduce_key_file: "~/.config/pstack/hooks/benny-reproduce.key"
+
 slack:
   source_channel_id: "SOURCE_CHANNEL_ID"
   operations_channel_id: ""
@@ -12,7 +20,7 @@ slack:
   thread_post_action: "configured-slack-thread-post-action"
   file_download_action: "configured-slack-file-download-action"
   operations_edit_action: "configured-slack-edit-action"
-  prefer_cursor_actions: true
+  prefer_harness_slack_mcp: true
   optional_bot_token_env: "BENNY_SLACK_BOT_TOKEN"
   allow_source_root_posts: false
   allow_worker_slack_writes: false
@@ -39,14 +47,14 @@ tracker:
   require_compensation_action: true
 
 routing:
-  map_path: ".cursor/benny/routing.md"
+  map_path: ".pstack/benny/routing.md"
   owner_pings_default: false
   allow_feature_owner_ping: false
   allow_confirmed_regression_author_ping: false
 
 control:
   skill_name: "control-target-app"
-  feature_map_path: ".cursor/benny/feature-map.md"
+  feature_map_path: ".pstack/benny/feature-map.md"
   environment: "safe-test-environment-placeholder"
   artifact_directory: "/tmp/benny-artifacts"
   artifact_retention_hours: 24
@@ -78,7 +86,7 @@ budgets:
   operations_follow_up_minutes: 45
 
 models:
-  triage: "choose-an-available-public-model-slug"
-  reproduce: "choose-an-available-public-model-slug"
-  code: "choose-an-available-public-model-slug"
-  media_review: "choose-an-available-public-model-slug"
+  triage: "provider/model#effort from pstack-run --list"
+  reproduce: "provider/model#effort from pstack-run --list"
+  code: "provider/model#effort from pstack-run --list"
+  media_review: "provider/model#effort from pstack-run --list"

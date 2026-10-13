@@ -7,7 +7,7 @@ description: "Use for \"how does X work\", code walkthroughs before changing som
 
 Explore the codebase to answer "how does X work?" questions. Produce architectural explanations at the level of a senior engineer onboarding onto a subsystem, enough to build a working mental model, not so much that it reads like annotated source code.
 
-Every spawn is a Task subagent with `subagent_type: generalPurpose` and `readonly: true`. Explorers use the `how explorer` line in the `pstack-models.mdc` rule (default `grok-4.7-xhigh-fast`), and every explainer uses the `how explainer` line (default `claude-opus-5-5-xhigh`). Set `model` to that line's value, or to the default if the rule or the line is missing. Leave `model` unset when the value is `auto` or `inherit-parent`. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message.
+Every spawn is a read-only `pstack-reader` subagent that takes its route per the `poteto-mode` skill's `references/harness.md` → Spawning. Explorers use the `how explorer` line in `~/.config/pstack/models.md` (default `xai/grok-4.7#xhigh`), and every explainer uses the `how explainer` line (default `anthropic/claude-opus-5-5#xhigh`). Use that line's value, or the default if the file or the line is missing. A value of `auto` or `inherit-parent` takes the Parent route. If a value is unavailable on its route (a native spawn error, or `pstack-run` reports no CLI serves it), use the default and say so. If the default is unavailable, use the closest model of the same provider that `pstack-run --list` shows.
 
 ## 1. Assess complexity
 
