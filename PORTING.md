@@ -1,6 +1,6 @@
 # Porting conventions
 
-mashed-poteto is a port of [pstack](https://github.com/cursor/plugins/tree/main/pstack) (Cursor) to Claude Code, Codex CLI, OpenCode and Grok Build. `upstream/` holds the pristine source at the commit in `upstream/COMMIT`. `src/` holds the ported, harness-neutral source. `scripts/build.mjs` renders `src/` into `dist/<harness>/` for each target.
+mashed-poteto is a port of [pstack](https://github.com/cursor/plugins/tree/main/pstack) (Cursor) to Claude Code, Codex CLI, OpenCode and Grok Build. The port is based on cursor/plugins@dbf49813a39c1a5389c5e28cb8e4c1c2379e2454. `src/` holds the ported, harness-neutral source. `scripts/build.mjs` renders `src/` into `dist/<harness>/` for each target.
 
 ## Rules for `src/`
 
@@ -51,6 +51,12 @@ Conditional text: `{{#if claude}}...{{/if}}`, also `codex`, `opencode`, `grok`, 
 | Cursor dashboard, cloud agent status | `{{agent_list}}` |
 | `mcps/` directory listing | the harness's MCP/tool listing, per `harness.md` → MCP discovery |
 | Bugbot | unchanged. It is a GitHub reviewer and works with any harness. |
+
+## Syncing with upstream
+
+1. Clone cursor/plugins and diff `pstack/` (and `cursor-team-kit/skills/{deslop,control-cli,control-ui}`) between the base commit above and the new one.
+2. Apply each change to the matching file in `src/`, applying the rules above to anything Cursor-coupled.
+3. Run `node scripts/build.mjs` and `npm test`, then record the new base commit in this file.
 
 ## Tools shipped in `skills/poteto-mode/scripts/pstack/`
 

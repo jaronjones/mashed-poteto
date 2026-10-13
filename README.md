@@ -23,7 +23,6 @@ Then run `/setup-pstack` (`$setup-pstack` on Codex) and start tasks with `/potet
 
 | Path | What |
 |---|---|
-| `upstream/` | Pristine pstack and the three bundled cursor-team-kit skills, at the commit in `upstream/COMMIT`. |
 | `src/` | The harness-neutral port. Edit here. |
 | `harness/profiles.mjs` | Per-harness token values. |
 | `scripts/build.mjs` | Renders `src/` into `dist/<harness>/` and lints for leftover Cursor coupling and broken links. |
@@ -41,4 +40,4 @@ npm run check            # fail if dist/ is stale
 
 ## License
 
-MIT. pstack is © Lauren Tan, and the bundled cursor-team-kit skills are © Cursor (see `upstream/cursor-team-kit/LICENSE`).
+MIT. pstack is © Lauren Tan, and the bundled cursor-team-kit skills are © Cursor (see `LICENSES/cursor-team-kit.txt`).
