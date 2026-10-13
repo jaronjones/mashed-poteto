@@ -1,0 +1,16 @@
+{
+  "name": "mashed-poteto",
+  "version": "0.15.23-port.1",
+  "description": "pstack, ported from Cursor to Claude Code, Codex CLI, OpenCode and Grok Build. if you want to go fast, go deep first.",
+  "private": true,
+  "type": "module",
+  "homepage": "https://github.com/cursor/plugins/tree/main/pstack",
+  "repository": "https://github.com/cursor/plugins",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "test": "node --test test/"
+  }
+}

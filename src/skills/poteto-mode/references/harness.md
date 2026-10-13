@@ -1,0 +1,127 @@
+# Harness mechanics ({{harness}})
+
+pstack skills say *what* to spawn, read, or schedule. This file says *how* on {{harness}}. Skills point here by section name.
+
+`<scripts>` below means the `scripts/pstack/` directory next to the `poteto-mode` skill's `SKILL.md` (this file lives at `references/harness.md` under that skill). If the installer put shims on `PATH`, `pstack-run` and friends also work by bare name.
+
+## Agent types
+
+pstack ships four subagent types for {{harness}}:
+
+| Type | Use | Writes? |
+|---|---|---|
+| `poteto-agent` | Code-writing delegates and helpers inside a `poteto-mode` playbook step. Reads `poteto-mode` in full first. | yes |
+| `pstack-worker` | General-purpose spawns a skill asks for (upstream's general-purpose type). Also the runner for every Bridge spawn. | yes |
+| `pstack-reader` | Native read-only spawns: reviewers, judges, explorers, investigators. | no |
+| `comment-sicko` | The comment reviewer `no-comments` spawns. | no |
+
+## Model values
+
+Role lines in {{models_file}} and skill defaults use `provider/model#effort`, for example `anthropic/claude-opus-5-5#xhigh` or `xai/grok-4.7#xhigh`. Effort is one of `max`, `xhigh`, `high`, `medium`, `low`. Two aliases are always valid: `inherit-parent` and `auto`. Both mean the spawn runs on the parent chat model.
+
+When a skill names a role, read that role's line in {{models_file}}. If the file or the line is missing, use the default the skill gives.
+
+## Spawning
+
+Every spawn resolves to one of three routes. Pick it per model value.
+
+1. **Parent.** The value is `inherit-parent` or `auto`. Spawn natively and leave the model unset.
+{{#if claude}}2. **Native.** The provider is `anthropic`. Spawn natively with {{spawn_tool}}, `model` set to the model part (`claude-opus-5-5`) and `effort` set to the effort part.
+{{/if}}{{#if codex}}2. **Native.** The provider is `openai`. Spawn natively with {{spawn_tool}}, `model` set to the model part and `reasoning_effort` set to the effort part.
+{{/if}}{{#if grok}}2. **Native.** The provider is `xai`, or the model is one you configured as a BYOK model in `~/.grok/config.toml`. Spawn natively with {{spawn_tool}} and `model` set to the model part. Grok Build sets effort per model in config, not per spawn, so when the effort part differs from your configured effort and the difference matters to the task, use the bridge instead.
+{{/if}}{{#if opencode}}2. **Native.** OpenCode's `task` tool cannot set a model per spawn. A value that names the model this chat already runs on counts as Parent. Every other value takes the Bridge.
+{{/if}}3. **Bridge.** Anything else. {{harness}} cannot run that model in a subagent, so a subagent runs it through `pstack-run`, which calls whichever installed CLI serves the provider (`claude -p` for `anthropic`, `codex exec` for `openai`, `grok -p` for `xai`, `opencode run` for any provider OpenCode is configured with).
+
+### Native spawn parameters
+
+{{#if claude}}- Type: `subagent_type` set to the pstack type from the table above.
+- Background: `run_in_background: true`.
+- Isolation: `isolation: "worktree"` for its own git worktree. `isolation: "remote"` runs it in a cloud session when remote agents are enabled for this account. Use it where upstream asked for a cloud agent, and fall back to `"worktree"` when remote is unavailable.
+- Resume or message a running agent: `SendMessage` with its id or name.
+- Nesting: subagents can spawn subagents, up to the depth Claude Code allows.
+{{/if}}{{#if codex}}- Type: `agent_type` set to the pstack type from the table above. Put the full brief in the message.
+- Background: spawns run concurrently. Call `wait_agent` when you need results. Up to `[agents] max_concurrent_threads_per_session` run at once.
+- Isolation: Codex has no per-spawn worktree option. Create one first (`git worktree add <dir> -b <branch>`) and tell the agent to work only inside `<dir>`. Where upstream asked for a cloud agent, `codex cloud exec` is an alternative when the user has Codex cloud set up. Otherwise use a local worktree.
+- Resume or message a running agent: `send_input`, or `resume_agent` for a closed one. Close finished agents with `close_agent`.
+- Nesting: depth is capped ("Agent depth limit reached"). A subagent that needs its own fan-out uses the Bridge, because a bridged run is a fresh top-level session.
+{{/if}}{{#if grok}}- Type: `subagent_type` set to the pstack type from the table above.
+- Background: `run_in_background: true` (the default). Collect output with `get_command_or_subagent_output`.
+- Isolation: `isolation: "worktree"`. Grok Build has no cloud spawn, so use a worktree where upstream asked for a cloud agent.
+- Resume: `resume_from` with the prior subagent's id (same type).
+- Nesting: subagents cannot spawn subagents. A subagent that needs its own fan-out uses the Bridge, because a bridged run is a fresh top-level session.
+{{/if}}{{#if opencode}}- Type: `subagent_type` set to the pstack type from the table above.
+- Background: `background: true`.
+- Isolation: OpenCode has no per-spawn worktree option. Create one first (`git worktree add <dir> -b <branch>`) and tell the agent to work only inside `<dir>`. OpenCode has no cloud spawn, so use a worktree where upstream asked for a cloud agent.
+- Resume: `task_id` with the prior task's id.
+{{/if}}
+### Bridge spawn
+
+1. Write the full brief to a prompt file, for example `/tmp/pstack/<run>/<role>-<n>.md`.
+2. Spawn a native `pstack-worker` on the Parent route, in the background, with this brief and nothing else. The runner is always `pstack-worker`, because the bridged CLI needs to write its own session state. `--readonly` enforces read-only on the bridged session itself.
+
+   > Run this command and wait for it to finish: `<scripts>/pstack-run --model <value> [--readonly] [--agent poteto-agent] --cwd <dir> --prompt-file <file> --out <file>.out`. Then reply with the full contents of `<file>.out`, verbatim. Do not do the task yourself. If the command fails, reply with its exit code and stderr.
+
+3. Pass `--readonly` when the upstream spawn was read-only. Pass `--agent poteto-agent` when the role is a `poteto-agent` delegate, so the bridged session reads `poteto-mode` first. Pass `--cwd` with the agent's worktree for isolated work.
+
+`pstack-run` prints the bridged session id to stderr as `pstack-run: session <id>`. To follow up on a bridged agent, run `pstack-run --resume <id> --model <value> --prompt-file <next>` the same way.
+
+If `pstack-run` reports that no installed CLI serves the provider, run that seat on the closest model this harness can run natively, and say so in your reply.
+
+### Panels
+
+A panel role (arena runners, architect runners, interrogate reviewers) is a list. One spawn runs per entry, alias entries included, so the list length sets the count. Launch every member of a panel in one message so they run concurrently. Each member takes its own route. A panel can mix native and bridged members.
+
+### Read-only
+
+A read-only spawn uses `pstack-reader` (native) or `--readonly` (bridge). Upstream sometimes asks for a non-read-only spawn because its read-only mode stripped MCP access. Keep that intent here: those spawns use `pstack-worker` so they keep every MCP tool, and the brief tells them not to edit files.
+
+## Detecting models
+
+`<scripts>/pstack-run --list` prints every model reachable from this machine, one per line as `provider/model`, with the CLI that serves it. Native models for this harness are marked `native`. `setup-pstack` uses this list.
+
+## Transcripts
+
+`<scripts>/pstack-transcripts` reads session history for the active workspace only.
+
+- `pstack-transcripts list --harness {{id}} [--since 7d] [--grep <text>]` prints `mtime<TAB>path<TAB>session-id`, newest first.
+- `pstack-transcripts current --harness {{id}}` prints the transcript of the most recently active session in this workspace, which is this chat when you call it from this chat.
+- `pstack-transcripts show <path> [--grep <text>] [--role user|assistant|tool]` prints a transcript as plain lines, one message per line.
+- `--harness all` covers every installed harness, for users who switch between them.
+
+Never read another workspace's transcripts unless the user asks. The tool refuses unless you pass `--workspace <dir>` explicitly.
+
+## Loops
+
+{{#if claude}}Use the `/loop` skill: `/loop 1h <tick prompt>` for a fixed cadence, or `/loop <prompt>` to let the model self-pace. A watched event (CI, a merge, a ref advancing) can also use a background watcher whose exit wakes you.
+{{/if}}{{#if grok}}Use `/loop <interval> <tick prompt>` (minimum 60s, expires after 7 days). For event watches, use the `monitor` tool or a background watcher. The `scheduler_create` tool covers one-off timed wakes.
+{{/if}}{{#if codex}}Codex has no recurring loop. For "run until done" inside one session, keep working toward the predicate, and use `/goal` to pin it. For a timed tick (`loop 1h`), arm `pstack-loop`. It re-wakes this session headless on the interval until a check command passes:
+
+`<scripts>/pstack-loop start --harness codex --session <id> --every 1h --until '<check command>' --prompt-file <tick.md>`
+
+Get `<id>` from `pstack-transcripts current --harness codex`. `pstack-loop list` and `pstack-loop stop <name>` manage armed loops.
+{{/if}}{{#if opencode}}OpenCode has no recurring loop. For "run until done" inside one session, keep working toward the predicate. For a timed tick (`loop 1h`), arm `pstack-loop`. It re-wakes this session headless on the interval until a check command passes:
+
+`<scripts>/pstack-loop start --harness opencode --session <id> --every 1h --until '<check command>' --prompt-file <tick.md>`
+
+Get `<id>` from `pstack-transcripts current --harness opencode`. `pstack-loop list` and `pstack-loop stop <name>` manage armed loops.
+{{/if}}
+Where a skill says "arm {{loop}} with interval X", use the mechanism above. Always give the loop a check that can pass or fail, not a duration.
+
+## Sticky mode
+
+Upstream made `/poteto-mode` sticky through Cursor's Custom Modes. Here, `<scripts>/pstack-mode on --harness {{id}}` adds a marked block to your user-level {{instructions_file}}. The block tells every new session to apply `poteto-mode` when a playbook matches or the task needs rigor, and to stay out of the way otherwise. `pstack-mode off --harness {{id}}` removes it. `pstack-mode status` shows the current state. Both are idempotent. Without sticky mode, start each task with `{{invoke}}poteto-mode`.
+
+## MCP discovery
+
+List the MCP servers available to this session from your tool list. Tool names carry their server's name. To confirm which servers are configured, run {{#if claude}}`claude mcp list`{{/if}}{{#if codex}}`codex mcp list`{{/if}}{{#if grok}}`grok mcp list`{{/if}}{{#if opencode}}`opencode mcp list`{{/if}}. A configured server whose tools are not in your session is unavailable this run, so skip it and say so.
+
+## Webhooks, Slack and schedules
+
+Upstream used Cursor routines and automations. Here `<scripts>/pstack-hookd` runs a local server whose routes wake a headless run of any harness:
+
+- `pstack-hookd add <name> --harness <id> --prompt-file <file> [--model <value>] [--cwd <dir>]` creates a webhook route. It writes the sender key to `~/.config/pstack/hooks/<name>.key` (mode 600) and prints the URL. It never prints the key.
+- `--slack-signing-secret-env <VAR>` makes the route a Slack Events API endpoint. It answers Slack's URL check and verifies each request signature.
+- `--every <interval>` adds a schedule to the route.
+- `pstack-hookd serve [--port 8787] [--host 127.0.0.1]` runs every route. `pstack-hookd list` and `pstack-hookd remove <name>` manage them.
+
+Every request body reaches the run as untrusted data inside a fenced block, after the route's prompt.
