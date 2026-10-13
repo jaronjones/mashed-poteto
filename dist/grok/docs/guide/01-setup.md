@@ -4,13 +4,15 @@ In this page you install the plugin, pick which models pstack uses, and run your
 
 ## Install the plugin
 
-In a Cursor chat, run:
+From a clone of mashed-poteto, run:
 
 ```text
-/add-plugin pstack
+grok plugin install ./dist/grok
 ```
 
-Cursor confirms the plugin is installed.
+Start a new session so the skills load.
+
+`./install.sh <claude|codex|opencode|grok|all>` also works for any harness. It installs at user level and refuses to overwrite a skill with the same name unless you pass `--force`.
 
 ## Pick your models
 
@@ -20,23 +22,25 @@ Run:
 /setup-pstack
 ```
 
-[`/setup-pstack`](../../skills/setup-pstack/SKILL.md) detects the models you have access to, asks for a reasoning budget, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.cursor/rules/pstack-models.mdc`, a small rule every pstack skill reads.
+[`/setup-pstack`](../../skills/setup-pstack/SKILL.md) detects the models you have access to, asks for a reasoning budget, shows you each role (code delegates, judgment, the review panels), and asks what you want. Answer the questions. It writes `~/.config/pstack/models.md`, a small file every pstack skill reads.
 
 The defaults run at `xhigh` reasoning, the same as the `large` budget. `unlimited` lifts each model to its highest tier, up to `max`. Opus goes to `max`. Grok tops out at `xhigh`, so it stays there. `medium` and `small` lower the reasoning and spend fewer tokens.
 
-You only override what you care about. A role with no line in the rule keeps the skill's default. To restore a default, delete that role's line. A rerun of `/setup-pstack` keeps any role whose model differs from the default. When a default changes, a rule written before the change still pins the old default, so delete those role lines, or delete the file, then run `/setup-pstack` again.
+You only override what you care about. A role with no line in the file keeps the skill's default. To restore a default, delete that role's line. A rerun of `/setup-pstack` keeps any role whose model differs from the default. When a default changes, a file written before the change still pins the old default, so delete those role lines, or delete the file, then run `/setup-pstack` again.
 
-You might be wondering what happens if you use Auto. Set a role to `inherit-parent` or `auto` and pstack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for every `/swarm` worker unless a race names a model for each arm.
+You might be wondering what happens if you'd rather a role ran on your chat's own model. Set a role to `inherit-parent` or `auto` and pstack omits the subagent `model` field, so the subagent inherits your parent chat model. Both values mean the same thing, and neither is a model slug. For a panel role the value is a list, and one subagent runs per entry, so the list length sets the panel size. Setup also configures `swarm workers`, the default model for every `/swarm` worker unless a race names a model for each arm.
+
+pstack's defaults mix model families. A role on a model Grok Build can't run in a subagent goes through `pstack-run`, which hands the prompt to the CLI that serves that model (`claude`, `codex`, `grok`, or `opencode`). That CLI has to be installed and logged in. `pstack-run --list` shows every model this machine can reach, and [`harness.md`](../../skills/poteto-mode/references/harness.md#spawning) has the details.
 
 ## Accept the verification offer, or don't
 
 At the end of setup, `/setup-pstack` looks for a way to prove app behavior in your project, either a `verify-*` skill or an existing harness. If it finds neither, it offers once to generate one with [`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md).
 
-Say yes and it writes `.cursor/skills/verify-<app>/`, a project-local skill that teaches agents to drive your app the way a user does. It proves the skill works once before handing it over. Say no and setup moves on. You can run `/create-verification-skill` yourself any time. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers it in depth.
+Say yes and it writes `verify-<app>/` under `.grok/skills`, a project-local skill that teaches agents to drive your app the way a user does. It proves the skill works once before handing it over. Say no and setup moves on. You can run `/create-verification-skill` yourself any time. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers it in depth.
 
 If you're new to pstack, say yes. An agent that can check its own work keeps going until the check passes. An agent that can't hands every result back to you to check by hand. Of everything in this guide, the verification skill pays off the most.
 
-After setup, start a new chat. The model rule applies to new sessions.
+After setup, start a new chat. The model file applies to new sessions.
 
 ## Keep the cost in check
 
@@ -57,6 +61,12 @@ Pick something real but small, and describe it the way you'd describe it to a co
 
 Watch the todo list. Its first items are the matched playbook's steps copied in, the Feature playbook for this prompt. If `/poteto-mode` skips a step, the step stays in the list with `skip: <reason>`, so you can see what it chose not to do.
 
-From here you can type normal follow-ups. To keep `/poteto-mode` on for the whole chat, pick it from the `/` menu with Option+Enter (Mac) or Alt+Enter (Windows) instead of Enter. That makes it a [Custom Mode](https://cursor.com/docs/skills), which stays in context on every turn until you exit it. Custom Modes are available in the Agents Window and the CLI. Plain Enter attaches the skill to one message, and it fades as the chat moves on.
+From here you can type normal follow-ups. Typing `/poteto-mode` attaches the skill to one message, and it fades as the chat moves on. To keep it on, turn on sticky mode once from a terminal:
+
+```text
+pstack-mode on --harness grok
+```
+
+If the installer didn't put the pstack tools on your `PATH`, run it from the `scripts/pstack/` directory of the installed `poteto-mode` skill. It adds a marked block to your user-level `AGENTS.md`, so every new session applies `/poteto-mode` when a playbook matches or the task needs rigor, and stays out of the way otherwise. `pstack-mode off --harness grok` removes it. [Sticky mode](../../skills/poteto-mode/references/harness.md#sticky-mode) has the details.
 
 Next: [Route work through `/poteto-mode`](./02-poteto-mode.md).

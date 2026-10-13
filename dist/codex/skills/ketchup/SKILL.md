@@ -1,11 +1,11 @@
 ---
 name: "ketchup"
-description: "Catch the user up on what changed in this chat since their last message, in a short reply built on real visuals. Give each action item just enough context to make the call. Use for $2."
+description: "Catch the user up on what changed in this chat since their last message, in a short reply built on real visuals. Give each action item just enough context to make the call. Use for $ketchup."
 ---
 
 # Ketchup
 
-Catch the user up on what changed in this chat since the last message they wrote before `$2`. Notifications and subagent results are not their messages. Write in the plain voice of [`$2`](../bro/SKILL.md), and skip its restating step. Assume the user remembers their last message and nothing after it. Call each PR, branch, or agent by a name they would know, not by a label you invented during the work.
+Catch the user up on what changed in this chat since the last message they wrote before `$ketchup`. Notifications and subagent results are not their messages. Write in the plain voice of [`$bro`](../bro/SKILL.md), and skip its restating step. Assume the user remembers their last message and nothing after it. Call each PR, branch, or agent by a name they would know, not by a label you invented during the work.
 
 ## Gather what changed
 

@@ -69,7 +69,7 @@ export function render(text, profile, file = "?") {
   });
   if (profile.invoke !== "/") {
     const names = skillNames.map((n) => n.replace(/[-]/g, "\\-")).join("|");
-    out = out.replace(new RegExp(`(^|[\\s\`(\\[])/(${names})(?![\\w/-])`, "gm"), `$1${profile.invoke}$2`);
+    out = out.replace(new RegExp(`(^|[\\s\`(\\[])/(${names})(?![\\w/-])`, "gm"), (_, pre, name) => pre + profile.invoke + name);
   }
   return out;
 }
@@ -266,7 +266,7 @@ function lint(out) {
 
 // ---------- main ----------
 
-function buildAll(outRoot) {
+export function buildAll(outRoot) {
   const problems = [];
   for (const id of harnessIds) problems.push(...lint(buildHarness(profiles[id], outRoot)).map((p) => `${id}/${p}`));
   return problems;

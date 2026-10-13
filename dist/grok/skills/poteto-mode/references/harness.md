@@ -11,7 +11,7 @@ pstack ships four subagent types for Grok Build:
 | Type | Use | Writes? |
 |---|---|---|
 | `poteto-agent` | Code-writing delegates and helpers inside a `poteto-mode` playbook step. Reads `poteto-mode` in full first. | yes |
-| `pstack-worker` | General-purpose spawns a skill asks for (the upstream `generalPurpose`). Also the runner for every Bridge spawn. | yes |
+| `pstack-worker` | General-purpose spawns a skill asks for (upstream's general-purpose type). Also the runner for every Bridge spawn. | yes |
 | `pstack-reader` | Native read-only spawns: reviewers, judges, explorers, investigators. | no |
 | `comment-sicko` | The comment reviewer `no-comments` spawns. | no |
 
@@ -33,9 +33,9 @@ Every spawn resolves to one of three routes. Pick it per model value.
 
 - Type: `subagent_type` set to the pstack type from the table above.
 - Background: `run_in_background: true` (the default). Collect output with `get_command_or_subagent_output`.
-- Isolation: `isolation: "worktree"`. Grok Build has no cloud spawn, so use a worktree where upstream said `environment: "cloud"`.
+- Isolation: `isolation: "worktree"`. Grok Build has no cloud spawn, so use a worktree where upstream asked for a cloud agent.
 - Resume: `resume_from` with the prior subagent's id (same type).
-- Nesting: subagents cannot spawn subagents. A subagent that needs its own fan-out uses the Bridge, because a bridged run is a fresh top-level session.
+- Nesting: subagents cannot spawn subagents. A subagent that needs its own fan-out runs `pstack-run` directly from its shell, in the background, one process per member, because a bridged run is a fresh top-level session that can spawn.
 
 ### Bridge spawn
 
@@ -56,22 +56,38 @@ A panel role (arena runners, architect runners, interrogate reviewers) is a list
 
 ### Read-only
 
-A read-only spawn uses `pstack-reader` (native) or `--readonly` (bridge). Upstream sometimes asks for a non-read-only spawn because read-only mode stripped MCP access in Cursor. Keep that intent here: those spawns use `pstack-worker` so they keep every MCP tool, and the brief tells them not to edit files.
+A read-only spawn uses `pstack-reader` (native) or `--readonly` (bridge). Upstream sometimes asks for a non-read-only spawn because its read-only mode stripped MCP access. Keep that intent here: those spawns use `pstack-worker` so they keep every MCP tool, and the brief tells them not to edit files.
+
+## Isolation
+
+An isolated spawn gets its own checkout, so parallel agents never write the same files. Upstream ran these as cloud agents. Here:
+
+- Native: `isolation: "worktree"`.
+- Bridge: create the worktree yourself and pass it as `--cwd`.
+- A spawn that must drive this machine's apps, simulators, or local transcripts runs unisolated in the main checkout, or in a worktree on this machine. Never in a cloud session.
+
+## Agent store
+
+Long-running programs (orchestrate, multi-phase plans) keep durable state in `~/.config/pstack/store/<repo-name>/`: the ledger, `units.tsv`, standing orders, plan files, and the inbox. Upstream kept these in its agent store. Every harness and every bridged run reads the same path, so a program survives a harness restart or a switch to another harness. Pass it to the `orch` script with `--store` or `ORCH_STORE`.
 
 ## Detecting models
 
-`<scripts>/pstack-run --list` prints every model reachable from this machine, one per line as `provider/model`, with the CLI that serves it. Native models for this harness are marked `native`. `setup-pstack` uses this list.
+`<scripts>/pstack-run --list --harness grok` prints every model reachable from this machine, one per line:
+
+`provider/model<TAB>via <cli>[<TAB>efforts=a,b,c][<TAB>native]`
+
+`via` names the CLI a Bridge spawn would use. `efforts=` lists the efforts that CLI offers for the model, when it reports them. A requested effort above the top listed one runs at the highest listed effort at or below it (Grok tops out at `xhigh`). `native` marks models Grok Build can run on the Native route. `setup-pstack` uses this list.
 
 ## Transcripts
 
 `<scripts>/pstack-transcripts` reads session history for the active workspace only.
 
 - `pstack-transcripts list --harness grok [--since 7d] [--grep <text>]` prints `mtime<TAB>path<TAB>session-id`, newest first.
-- `pstack-transcripts current --harness grok` prints the transcript of the most recently active session in this workspace, which is this chat when you call it from this chat.
+- `pstack-transcripts current --harness grok` prints the path of the most recently active session's transcript in this workspace, which is this chat's when you call it from this chat. Add `--id` to print its session id instead.
 - `pstack-transcripts show <path> [--grep <text>] [--role user|assistant|tool]` prints a transcript as plain lines, one message per line.
 - `--harness all` covers every installed harness, for users who switch between them.
 
-Never read another workspace's transcripts unless the user asks. The tool refuses unless you pass `--workspace <dir>` explicitly.
+Never read another workspace's transcripts unless the user asks. `list` and `current` stay in this workspace unless you pass `--workspace <dir>` explicitly, and `show` exits 2 on a transcript from another workspace without it. In `show` output, a tool result prints as `tool: => <output>`, truncated to 200 characters.
 
 ## Loops
 
@@ -81,7 +97,7 @@ Where a skill says "arm the `/loop` command with interval X", use the mechanism 
 
 ## Sticky mode
 
-Upstream made `/poteto-mode` sticky through Cursor's Custom Modes. Here, `<scripts>/pstack-mode on --harness grok` adds a marked block to your user-level `AGENTS.md`. The block tells every new session to apply `poteto-mode` when a playbook matches or the task needs rigor, and to stay out of the way otherwise. `pstack-mode off --harness grok` removes it. `pstack-mode status` shows the current state. Both are idempotent. Without sticky mode, start each task with `/poteto-mode`.
+Upstream made `/poteto-mode` sticky through Cursor's Custom Modes. Here, `<scripts>/pstack-mode on --harness grok` (or `--harness all`; the flag is required) adds a marked block to your user-level `AGENTS.md`. The block tells every new session to apply `poteto-mode` when a playbook matches or the task needs rigor, and to stay out of the way otherwise. `pstack-mode off --harness grok` removes it. `pstack-mode status` shows the current state. Both are idempotent. Without sticky mode, start each task with `/poteto-mode`.
 
 ## MCP discovery
 

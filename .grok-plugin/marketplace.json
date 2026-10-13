@@ -1,0 +1,7 @@
+{
+  "name": "mashed-poteto",
+  "owner": { "name": "mashed-poteto" },
+  "plugins": [
+    { "name": "pstack", "description": "pstack, ported from Cursor: rigorous agent workflows, principles, and multi-model review panels.", "source": { "type": "local", "path": "./dist/grok" } }
+  ]
+}
