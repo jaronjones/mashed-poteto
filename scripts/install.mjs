@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // User-level installer. See README → Install.
-// Usage: install.sh <claude|codex|opencode|grok|all> [--plugin] [--force] [--uninstall] [--dry-run]
+// Usage: install.sh <claude|codex|opencode|grok|all> [--plugin] [--force] [--full-access] [--uninstall] [--dry-run]
 
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -32,13 +32,14 @@ const { values, positionals } = parseArgs({
   options: {
     plugin: { type: "boolean", default: false },
     force: { type: "boolean", default: false },
+    "full-access": { type: "boolean", default: false },
     uninstall: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
   },
 });
 const which = positionals[0];
 if (!which || !(which === "all" || harnessIds.includes(which))) {
-  console.error(`usage: install.sh <${harnessIds.join("|")}|all> [--plugin] [--force] [--uninstall] [--dry-run]`);
+  console.error(`usage: install.sh <${harnessIds.join("|")}|all> [--plugin] [--force] [--full-access] [--uninstall] [--dry-run]`);
   process.exit(2);
 }
 const selected = which === "all" ? harnessIds : [which];
@@ -101,6 +102,12 @@ function install(h) {
     installEntries(join(dist, "skills"), targets[h].skills, owned, installed, collisions);
     installEntries(join(dist, "agents"), targets[h].agents, owned, installed, collisions);
   }
+  // Codex fixes a subagent's sandbox in its TOML, so opting in to full access happens at install time.
+  if (h === "codex" && values["full-access"])
+    for (const p of installed.filter((p) => p.endsWith(".toml") && (dry || readFileSync(p, "utf8").includes('"workspace-write"'))))
+      act(`grant full access in ${p}`, () =>
+        writeFileSync(p, readFileSync(p, "utf8").replace('sandbox_mode = "workspace-write"', 'sandbox_mode = "danger-full-access"')),
+      );
   for (const stale of owned.filter((p) => !installed.includes(p) && exists(p))) act(`remove stale ${stale}`, () => rmSync(stale, { recursive: true, force: true }));
   act(`record ${manifestPath(h)}`, () => {
     mkdirSync(pstackHome, { recursive: true });

@@ -31,7 +31,7 @@ or, from a clone, for any of them:
 ./install.sh <claude|codex|opencode|grok|all>
 ```
 
-`install.sh` installs at user level. it refuses to overwrite a skill or agent it didn't install, unless you pass `--force`, which moves the old one aside. `--plugin` prints the plugin commands for your harness instead, `--uninstall` removes only what it installed, and `--dry-run` shows what it would do. it also stages every harness's rendering under `~/.local/share/pstack/` (so a bridged run reads instructions written for its own harness) and links the `pstack-*` tools into `~/.local/bin`.
+`install.sh` installs at user level. it refuses to overwrite a skill or agent it didn't install, unless you pass `--force`, which moves the old one aside. `--plugin` prints the plugin commands for your harness instead, `--full-access` gives codex's writer agents `danger-full-access` (only if you chose `full` in `$setup-pstack`), `--uninstall` removes only what it installed, and `--dry-run` shows what it would do. it also stages every harness's rendering under `~/.local/share/pstack/` (so a bridged run reads instructions written for its own harness) and links the `pstack-*` tools into `~/.local/bin`.
 
 start a new session after installing so the skills load. cross-model panels need the other CLIs (`claude`, `codex`, `grok`, `opencode`) installed and logged in for the models you pick. `pstack-run --list` shows what your machine can reach.
 

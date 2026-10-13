@@ -80,6 +80,12 @@ A read-only spawn uses `pstack-reader` (native) or `--readonly` (bridge). Upstre
 
 A bridged session has the bridged CLI's MCP servers, not this session's. Before you bridge a seat whose job depends on a specific MCP server (an investigator that owns one source, a reviewer that spot-checks tickets), check that the bridged CLI has it (`<cli> mcp list`). If it does not, run that seat on the Parent route and say so in your reply. Never let a missing server pass as a null result.
 
+## Permissions
+
+Unattended runs (Bridge spawns, `pstack-loop` ticks, `pstack-hookd` routes) cannot stop to ask for approval, so their permissions are set up front. Read-only runs are always read-only. Write runs default to each harness's sandbox: `acceptEdits` for `claude` and `grok`, `workspace-write` for `codex`, and opencode.json's permissions for `opencode`. In that mode a run can edit files, but commands outside the user's allowlist are denied, and Codex blocks network and writes outside the workspace (including `git push` and commits from a worktree whose `.git` lives elsewhere).
+
+Full access is opt-in. `bridge permissions: full` in {{models_file}} (written by `setup-pstack` when the user chooses it), `PSTACK_PERMISSIONS=full`, or `--permissions full` on one run switches write runs to `bypassPermissions` or `danger-full-access`. {{#if codex}}Codex fixes a subagent's sandbox in its agent file, so native `poteto-agent` and `pstack-worker` spawns get full access only after `./install.sh codex --full-access`. {{/if}}Never enable full access yourself. If a delegate fails on a permission or sandbox denial, report the denial and name the opt-in.
+
 ## Isolation
 
 An isolated spawn gets its own checkout, so parallel agents never write the same files. Upstream ran these as cloud agents. Here:
