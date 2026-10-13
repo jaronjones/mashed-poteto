@@ -254,3 +254,11 @@ test("add warns when parallel runs share a checkout", () => {
   assert.equal(iso.status, 0);
   assert.doesNotMatch(iso.stderr, /warning/);
 });
+
+test("remove refuses names that could escape the hooks dir", () => {
+  const cfg = mkdtempSync(join(tmpdir(), "hookd-rm-"));
+  writeFileSync(join(cfg, "victim.json"), "{}");
+  const r = spawnSync(process.execPath, [hookd, "remove", "../victim"], { env: { ...process.env, PSTACK_CONFIG_DIR: cfg }, encoding: "utf8" });
+  assert.notEqual(r.status, 0);
+  assert.ok(existsSync(join(cfg, "victim.json")));
+});

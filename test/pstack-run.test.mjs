@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCommand, chooseCli, clampEffort, parseModel } from "../src/skills/poteto-mode/scripts/pstack/pstack-run.mjs";
@@ -94,4 +94,35 @@ test("full access is opt-in through flag, env, or models.md", () => {
   assert.match(args(base), /bypassPermissions/);
   const bad = spawnSync(bin, ["--model", "anthropic/claude-haiku-5-5", "--prompt", "x", "--permissions", "yolo"], { env: base, encoding: "utf8" });
   assert.equal(bad.status, 2);
+});
+
+test("runs from a path with a space instead of silently doing nothing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pstack run space-"));
+  execFileSync("cp", ["-R", new URL("../src/skills/poteto-mode/scripts/pstack", import.meta.url).pathname, join(dir, "pstack")]);
+  const fake = join(dir, "fake claude");
+  writeFileSync(fake, `#!/bin/sh\ncat >/dev/null\necho '{"result":"spaced","session_id":"s","is_error":false}'\n`);
+  chmodSync(fake, 0o755);
+  const r = spawnSync(join(dir, "pstack", "pstack-run"), ["--model", "anthropic/claude-haiku-5-5", "--prompt", "x"], {
+    env: { ...process.env, PSTACK_RUN_INSTALLED: "claude", PSTACK_RUN_BIN_CLAUDE: fake },
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, "spaced\n");
+});
+
+test("SIGTERM stops the agent CLI too, not just pstack-run", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pstack-run-sig-"));
+  const fake = join(dir, "fake-claude");
+  writeFileSync(fake, `#!/bin/sh\necho $$ > "${dir}/pid"\ncat >/dev/null\nexec sleep 30\n`);
+  chmodSync(fake, 0o755);
+  const { spawn } = await import("node:child_process");
+  const child = spawn(bin, ["--model", "anthropic/claude-haiku-5-5", "--prompt", "x"], { env: { ...process.env, PSTACK_RUN_INSTALLED: "claude", PSTACK_RUN_BIN_CLAUDE: fake } });
+  const pidFile = join(dir, "pid");
+  for (let i = 0; i < 50 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 100));
+  const agentPid = Number(readFileSync(pidFile, "utf8"));
+  const exited = new Promise((r) => child.on("exit", r));
+  child.kill("SIGTERM");
+  await exited;
+  await new Promise((r) => setTimeout(r, 300));
+  assert.throws(() => process.kill(agentPid, 0), /ESRCH/, "agent CLI still running after SIGTERM");
 });

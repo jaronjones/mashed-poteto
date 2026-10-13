@@ -1,2 +1,8 @@
 #!/bin/sh
-exec node "$(dirname "$(readlink -f "$0")")/pstack-run.mjs" "$@"
+# Follow symlinks without readlink -f, which macOS before 12.3 lacks.
+f=$0
+while [ -L "$f" ]; do
+  l=$(readlink "$f")
+  case $l in /*) f=$l ;; *) f=$(dirname "$f")/$l ;; esac
+done
+exec node "$(dirname "$f")/pstack-run.mjs" "$@"

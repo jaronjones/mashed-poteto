@@ -66,7 +66,8 @@ test("claude loop resumes the session until --max, then marks done", async () =>
   await waitFor(() => state(f, "ci").status === "done");
   assert.equal(state(f, "ci").ticks, 2);
   assert.match(state(f, "ci").reason, /--max 2/);
-  assert.deepEqual(calls(f).map((c) => c.args), [["-p", "-r", "sess-123", "--permission-mode", "acceptEdits", "check CI"], ["-p", "-r", "sess-123", "--permission-mode", "acceptEdits", "check CI"]]);
+  assert.deepEqual(calls(f).map((c) => c.args), [["-p", "-r", "sess-123", "--permission-mode", "acceptEdits"], ["-p", "-r", "sess-123", "--permission-mode", "acceptEdits"]]);
+  assert.equal(calls(f)[0].stdin, "check CI", "the prompt goes on stdin so it can never parse as a flag");
   const log = readFileSync(join(f.loops, "ci.log"), "utf8");
   assert.match(log, /tick 1/);
   assert.match(log, /fake harness ran/);
@@ -81,7 +82,7 @@ test("codex gets the prompt on stdin and --until ends the loop", async () => {
   writeFileSync(flag, "");
   await waitFor(() => state(f, "codex-abc").status === "done");
   assert.equal(state(f, "codex-abc").reason, "check passed");
-  assert.deepEqual(calls(f)[0].args, ["exec", "resume", "abc", "-c", 'sandbox_mode="workspace-write"', "-"]);
+  assert.deepEqual(calls(f)[0].args, ["exec", "resume", "abc", "--skip-git-repo-check", "-c", 'sandbox_mode="workspace-write"', "-"]);
   assert.equal(calls(f)[0].stdin, "check CI");
 });
 
@@ -91,7 +92,10 @@ test("opencode and grok argument shapes", async () => {
   run(f, ["start", "--harness", "grok", "--session", "s2", "--every", "1s", "--max", "1", "--prompt-file", f.prompt, "--name", "gk"]);
   await waitFor(() => state(f, "oc").status === "done" && state(f, "gk").status === "done");
   const args = calls(f).map((c) => c.args).sort();
-  assert.deepEqual(args, [["-r", "s2", "--permission-mode", "acceptEdits", "-p", "check CI"], ["run", "-s", "s1", "check CI"]]);
+  assert.deepEqual(args, [
+    ["-r", "s2", "--permission-mode", "acceptEdits", "--prompt-file", f.prompt],
+    ["run", "-s", "s1", "-f", f.prompt, "--", "Follow the instructions in the attached prompt file exactly."],
+  ]);
 });
 
 test("ticks never overlap when a tick outlasts the interval", async () => {
