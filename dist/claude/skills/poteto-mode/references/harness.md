@@ -15,6 +15,8 @@ pstack ships four subagent types for Claude Code:
 | `pstack-reader` | Native read-only spawns: reviewers, judges, explorers, investigators. | no |
 | `comment-sicko` | The comment reviewer `no-comments` spawns. | no |
 
+When pstack is installed as a plugin, the harness may namespace these types, for example `pstack:poteto-agent`. Use the exact name your spawn tool lists. A user-level install (`install.sh`) keeps the bare names.
+
 ## Model values
 
 Role lines in `~/.config/pstack/models.md` and skill defaults use `provider/model#effort`, for example `anthropic/claude-opus-5-5#xhigh` or `xai/grok-4.7#xhigh`. Effort is one of `max`, `xhigh`, `high`, `medium`, `low`. Two aliases are always valid: `inherit-parent` and `auto`. Both mean the spawn runs on the parent chat model.
@@ -110,6 +112,10 @@ Upstream used Cursor routines and automations. Here `<scripts>/pstack-hookd` run
 - `pstack-hookd add <name> --harness <id> --prompt-file <file> [--model <value>] [--cwd <dir>]` creates a webhook route. It writes the sender key to `~/.config/pstack/hooks/<name>.key` (mode 600) and prints the URL. It never prints the key.
 - `--slack-signing-secret-env <VAR>` makes the route a Slack Events API endpoint. It answers Slack's URL check and verifies each request signature.
 - `--every <interval>` adds a schedule to the route.
-- `pstack-hookd serve [--port 8787] [--host 127.0.0.1]` runs every route. `pstack-hookd list` and `pstack-hookd remove <name>` manage them.
+- `--concurrency N` (default 1) runs up to N at once. `--queue N` (default 100) holds later wakes in order. A webhook answers 202 when it accepts a wake and 429 when the queue is full.
+- `--isolate worktree [--base <ref>]` gives each run its own detached worktree of `--cwd` at `<ref>` (default `HEAD`). A clean worktree is removed after the run. One with commits, a branch, or changes is kept and its path logged. Use it for any route that writes with `--concurrency` above 1.
+- `pstack-hookd serve [--port 8787] [--host 127.0.0.1]` runs every route. `pstack-hookd list` and `pstack-hookd remove <name>` manage them. Restart `serve` after `add` or `remove`.
+
+A Slack route wakes only on new top-level human messages. Bot posts, edits and thread replies are acknowledged and dropped. Each run reads the route's prompt file fresh. Logs are under `~/.config/pstack/hooks/logs/<name>/`.
 
 Every request body reaches the run as untrusted data inside a fenced block, after the route's prompt.

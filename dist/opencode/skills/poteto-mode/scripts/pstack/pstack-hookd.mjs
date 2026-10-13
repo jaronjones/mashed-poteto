@@ -3,7 +3,7 @@
 // Each route runs its prompt through pstack-run on the harness it names. See harness.md → Webhooks, Slack and schedules.
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
@@ -24,6 +24,7 @@ const USAGE = `usage:
   pstack-hookd add <name> --harness <claude|codex|grok|opencode> --prompt-file <file>
                    [--model <provider/model#effort | inherit-parent>] [--cwd <dir>]
                    [--slack-signing-secret-env <VAR>] [--every <30s|15m|1h|1d>]
+                   [--concurrency 1] [--queue 100] [--isolate worktree [--base HEAD]]
   pstack-hookd remove <name>
   pstack-hookd list
   pstack-hookd serve [--port 8787] [--host 127.0.0.1]`;
@@ -57,6 +58,21 @@ function parseInterval(text) {
 
 const routePath = (name) => join(hooksDir, `${name}.json`);
 const keyPath = (name) => join(hooksDir, `${name}.key`);
+const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+const tryGit = (cwd, ...args) => {
+  try {
+    return git(cwd, ...args);
+  } catch {
+    return "";
+  }
+};
+
+function positiveInt(flag, text, fallback) {
+  if (text === undefined) return fallback;
+  if (!/^[1-9]\d*$/.test(text)) fail(`--${flag} takes a positive whole number`);
+  return Number(text);
+}
 
 function loadRoutes() {
   if (!existsSync(hooksDir)) return [];
@@ -68,7 +84,7 @@ function loadRoutes() {
 // ---------- add / remove / list ----------
 
 function add(args) {
-  const { flags, positional } = parseFlags(args, ["harness", "prompt-file", "model", "cwd", "slack-signing-secret-env", "every"]);
+  const { flags, positional } = parseFlags(args, ["harness", "prompt-file", "model", "cwd", "slack-signing-secret-env", "every", "concurrency", "queue", "isolate", "base"]);
   const [name] = positional;
   if (!name || positional.length > 1 || !/^[a-z0-9][a-z0-9-]*$/.test(name)) fail(`add needs one lowercase kebab-case name\n${USAGE}`);
   if (!HARNESSES.includes(flags.harness)) fail(`--harness must be one of ${HARNESSES.join(", ")}`);
@@ -80,12 +96,25 @@ function add(args) {
   const slackEnv = flags["slack-signing-secret-env"];
   if (slackEnv && !/^[A-Z_][A-Z0-9_]*$/.test(slackEnv)) fail("--slack-signing-secret-env takes an environment variable name, not a secret");
   if (flags.every) parseInterval(flags.every);
+  const concurrency = positiveInt("concurrency", flags.concurrency, 1);
+  const queue = positiveInt("queue", flags.queue, 100);
+  if (flags.isolate !== undefined && flags.isolate !== "worktree") fail("--isolate takes one value: worktree");
+  if (flags.base && !flags.isolate) fail("--base needs --isolate worktree");
+  if (flags.isolate) {
+    try {
+      git(cwd, "rev-parse", "--verify", `${flags.base || "HEAD"}^{commit}`);
+    } catch {
+      fail(`--isolate worktree needs --cwd to be a git repository where ${flags.base || "HEAD"} names a commit`);
+    }
+  }
   if (existsSync(routePath(name))) fail(`route ${name} already exists. Run: pstack-hookd remove ${name}`);
 
   mkdirSync(hooksDir, { recursive: true, mode: 0o700 });
   const route = { name, harness: flags.harness, model: flags.model || "inherit-parent", cwd, promptFile };
   if (slackEnv) route.slackSigningSecretEnv = slackEnv;
   if (flags.every) route.every = flags.every;
+  Object.assign(route, { concurrency, queue });
+  if (flags.isolate) Object.assign(route, { isolate: "worktree", base: flags.base || "HEAD" });
   writeFileSync(routePath(name), JSON.stringify(route, null, 2) + "\n", { mode: 0o600 });
 
   console.log(`added route ${name}`);
@@ -98,6 +127,10 @@ function add(args) {
     console.log(`key file: ${keyPath(name)} (send it as "Authorization: Bearer <key>")`);
   }
   if (route.every) console.log(`schedule: every ${route.every}`);
+  console.log(`runs: up to ${concurrency} at once, ${queue} queued${route.isolate ? `, each in its own worktree from ${route.base}` : ""}`);
+  if (concurrency > 1 && !route.isolate) {
+    console.error(`pstack-hookd: warning: ${concurrency} runs will share ${cwd}. If this route writes files, add --isolate worktree.`);
+  }
 }
 
 function remove(args) {
@@ -113,49 +146,83 @@ function list() {
   if (!routes.length) return console.log("no routes");
   for (const r of routes) {
     const kind = r.slackSigningSecretEnv ? `slack($${r.slackSigningSecretEnv})` : "webhook";
-    console.log([r.name, r.harness, r.model, kind, r.every ? `every ${r.every}` : "-", r.cwd].join("\t"));
+    const runs = `x${r.concurrency ?? 1}/q${r.queue ?? 100}${r.isolate ? `/worktree@${r.base}` : ""}`;
+    console.log([r.name, r.harness, r.model, kind, r.every ? `every ${r.every}` : "-", runs, r.cwd].join("\t"));
   }
 }
 
 // ---------- runs ----------
 
-const runState = new Map(); // name → { child, pending }
+const runState = new Map(); // name → { running: Set<child>, queue: payload[] }
 
 function enqueue(route, payload) {
-  const state = runState.get(route.name) || { child: null, pending: null };
+  const state = runState.get(route.name) || { running: new Set(), queue: [] };
   runState.set(route.name, state);
-  if (!state.child) return startRun(route, payload, state), "started";
-  if (!state.pending) return (state.pending = payload), "queued";
-  console.error(`pstack-hookd: ${route.name} is busy with one run pending. Dropped a payload.`);
+  if (state.running.size < (route.concurrency ?? 1)) return startRun(route, payload, state), "started";
+  if (state.queue.length < (route.queue ?? 100)) return state.queue.push(payload), "queued";
+  console.error(`pstack-hookd: ${route.name} queue is full. Dropped a payload.`);
   return "dropped";
+}
+
+function startNext(route, state) {
+  if (!shuttingDown && state.queue.length && state.running.size < (route.concurrency ?? 1)) startRun(route, state.queue.shift(), state);
+}
+
+// A worktree gets its own checkout of the route's base commit, so parallel runs never share files.
+function addWorktree(route, runId) {
+  const sha = git(route.cwd, "rev-parse", "--verify", `${route.base}^{commit}`);
+  const dir = join(hooksDir, "worktrees", route.name, runId);
+  mkdirSync(dirname(dir), { recursive: true, mode: 0o700 });
+  git(route.cwd, "worktree", "add", "--detach", dir, sha);
+  return { dir, sha };
+}
+
+// Keep a worktree whose run committed, switched to a branch, or left changes. A repro run may push a draft-fix branch from it.
+function cleanWorktree(route, { dir, sha }) {
+  try {
+    const onBranch = tryGit(dir, "symbolic-ref", "-q", "HEAD") !== "";
+    if (onBranch || git(dir, "rev-parse", "HEAD") !== sha || git(dir, "status", "--porcelain") !== "") {
+      console.error(`pstack-hookd: ${route.name} kept worktree ${dir} because the run left commits or changes`);
+      return;
+    }
+    git(route.cwd, "worktree", "remove", "--force", dir);
+  } catch (err) {
+    console.error(`pstack-hookd: ${route.name} could not clean worktree ${dir}: ${err.message}`);
+  }
 }
 
 function startRun(route, payload, state) {
   const logDir = join(hooksDir, "logs", route.name);
   mkdirSync(logDir, { recursive: true, mode: 0o700 });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const base = join(logDir, stamp);
-  // Backticks only occur inside JSON strings, so ` keeps the data intact and the fence unbreakable.
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(3).toString("hex")}`;
+  const base = join(logDir, runId);
+  // Backticks only occur inside JSON strings, so escaping them keeps the data intact and the fence unbreakable.
   const json = JSON.stringify(payload, null, 2).replace(/`/g, "\\u0060");
   const prompt = `${readFileSync(route.promptFile, "utf8").trimEnd()}\n\n${UNTRUSTED_FENCE}\n\n\`\`\`json\n${json}\n\`\`\`\n`;
   writeFileSync(`${base}.prompt.md`, prompt, { mode: 0o600 });
 
-  const args = ["--model", route.model, "--via", route.harness, "--cwd", route.cwd, "--prompt-file", `${base}.prompt.md`, "--out", `${base}.out`];
+  let worktree = null;
+  if (route.isolate === "worktree") {
+    try {
+      worktree = addWorktree(route, runId);
+    } catch (err) {
+      console.error(`pstack-hookd: ${route.name} could not create a worktree, run skipped: ${err.message}`);
+      return startNext(route, state);
+    }
+  }
+  const cwd = worktree ? worktree.dir : route.cwd;
+  const args = ["--model", route.model, "--via", route.harness, "--cwd", cwd, "--prompt-file", `${base}.prompt.md`, "--out", `${base}.out`];
   const log = openSync(`${base}.log`, "a", 0o600);
   const env = { ...process.env };
   for (const r of loadRoutes()) if (r.slackSigningSecretEnv) delete env[r.slackSigningSecretEnv];
   console.error(`pstack-hookd: ${route.name} run started, log ${base}.log`);
-  const child = spawn(pstackRun, args, { cwd: route.cwd, env, stdio: ["ignore", log, log] });
-  state.child = child;
+  const child = spawn(pstackRun, args, { cwd, env, stdio: ["ignore", log, log] });
+  state.running.add(child);
   const finish = (code) => {
-    if (state.child !== child) return;
-    state.child = null;
+    if (!state.running.delete(child)) return;
     console.error(`pstack-hookd: ${route.name} run finished (${code})`);
-    if (state.pending && !shuttingDown) {
-      const next = state.pending;
-      state.pending = null;
-      startRun(route, next, state);
-    }
+    if (worktree) cleanWorktree(route, worktree);
+    startNext(route, state);
   };
   child.on("error", (err) => finish(err.message));
   child.on("exit", (code, signal) => finish(signal || code));
@@ -237,6 +304,12 @@ async function handleSlack(route, req, res) {
 
 let shuttingDown = false;
 
+// A schedule tick waits behind running work, but ticks never pile up in the queue.
+function scheduleTick(route) {
+  if (runState.get(route.name)?.queue.some((p) => p.trigger === "schedule")) return;
+  enqueue(route, { trigger: "schedule", at: new Date().toISOString() });
+}
+
 function serve(args) {
   const { flags } = parseFlags(args, ["port", "host"]);
   const port = Number(flags.port ?? 8787);
@@ -264,7 +337,7 @@ function serve(args) {
 
   const timers = [...routes.values()]
     .filter((r) => r.every)
-    .map((r) => setInterval(() => enqueue(r, { trigger: "schedule", at: new Date().toISOString() }), parseInterval(r.every)));
+    .map((r) => setInterval(() => scheduleTick(r), parseInterval(r.every)));
 
   server.listen(port, host, () => {
     const { port: actual } = server.address();
@@ -279,7 +352,7 @@ function serve(args) {
     timers.forEach(clearInterval);
     server.close();
     server.closeAllConnections?.();
-    const children = [...runState.values()].map((s) => s.child).filter(Boolean);
+    const children = [...runState.values()].flatMap((s) => [...s.running]);
     if (!children.length) process.exit(0);
     let left = children.length;
     for (const child of children) {
