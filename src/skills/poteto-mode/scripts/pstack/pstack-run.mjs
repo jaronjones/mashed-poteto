@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { permissionArgs, resolvePermissions } from "./permissions.mjs";
 
 const here = dirname(new URL(import.meta.url).pathname);
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -17,7 +18,7 @@ const CLAUDE_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5
 
 const usage = `usage:
   pstack-run --model <provider/model#effort|inherit-parent|auto> [--via claude|codex|grok|opencode]
-             [--readonly] [--agent NAME] [--cwd DIR] [--prompt-file F | --prompt TEXT | stdin]
+             [--readonly | --permissions default|full] [--agent NAME] [--cwd DIR] [--prompt-file F | --prompt TEXT | stdin]
              [--out F] [--resume SESSION] [--dry-run]
   pstack-run --list [--harness claude|codex|grok|opencode]`;
 
@@ -147,7 +148,8 @@ function agentPreamble(name, cli) {
 
 // ---------- per-CLI invocation ----------
 
-export function buildCommand(cli, { spec, readonly, cwd, resume, promptFile, outFile }) {
+export function buildCommand(cli, { spec, readonly, permissions = "default", cwd, resume, promptFile, outFile }) {
+  const perms = permissionArgs(cli, { readonly, permissions, resume: Boolean(resume) });
   const model = spec.alias ? undefined : spec.model;
   const effort = spec.effort;
   const extra = (process.env[`PSTACK_RUN_${cli.toUpperCase()}_ARGS`] ?? "").split(" ").filter(Boolean);
@@ -157,7 +159,7 @@ export function buildCommand(cli, { spec, readonly, cwd, resume, promptFile, out
         bin: "claude",
         args: [
           "-p", "--output-format", "json",
-          "--permission-mode", readonly ? "plan" : "bypassPermissions",
+          ...perms,
           ...(model ? ["--model", model] : []),
           ...(effort ? ["--effort", effort] : []),
           ...(resume ? ["--resume", resume] : []),
@@ -175,7 +177,8 @@ export function buildCommand(cli, { spec, readonly, cwd, resume, promptFile, out
         args: [
           "exec", ...(resume ? ["resume", resume] : []),
           "--json", "--skip-git-repo-check", "-o", outFile,
-          ...(resume ? [] : ["-s", readonly ? "read-only" : "workspace-write", "-C", cwd]),
+          ...perms,
+          ...(resume ? [] : ["-C", cwd]),
           ...(model ? ["-m", model] : []),
           ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []),
           ...extra,
@@ -197,7 +200,7 @@ export function buildCommand(cli, { spec, readonly, cwd, resume, promptFile, out
         bin: "grok",
         args: [
           "--prompt-file", promptFile, "--output-format", "json", "--cwd", cwd,
-          "--permission-mode", readonly ? "plan" : "bypassPermissions",
+          ...perms,
           ...(model ? ["-m", model] : []),
           ...(effort ? ["--effort", effort] : []),
           ...(resume ? ["--resume", resume] : []),
@@ -214,7 +217,7 @@ export function buildCommand(cli, { spec, readonly, cwd, resume, promptFile, out
         bin: "opencode",
         args: [
           "run", "--format", "json",
-          ...(readonly ? ["--agent", "plan"] : []),
+          ...perms,
           ...(spec.alias ? [] : ["-m", `${spec.provider}/${spec.model}`]),
           ...(effort ? ["--variant", effort] : []),
           ...(resume ? ["-s", resume] : []),
@@ -242,6 +245,7 @@ async function main() {
       model: { type: "string" },
       via: { type: "string" },
       readonly: { type: "boolean", default: false },
+      permissions: { type: "string" },
       agent: { type: "string" },
       cwd: { type: "string" },
       "prompt-file": { type: "string" },
@@ -287,7 +291,13 @@ async function main() {
   const outFile = values.out ? resolve(values.out) : join(workDir, "out.md");
   writeFileSync(promptFile, prompt);
 
-  const cmd = buildCommand(cli, { spec, readonly: values.readonly, cwd, resume: values.resume, promptFile, outFile: join(workDir, "last.md") });
+  let permissions;
+  try {
+    permissions = resolvePermissions(values.permissions);
+  } catch (e) {
+    fail(2, e.message);
+  }
+  const cmd = buildCommand(cli, { spec, readonly: values.readonly, permissions, cwd, resume: values.resume, promptFile, outFile: join(workDir, "last.md") });
   if (values["dry-run"]) return console.log(JSON.stringify({ cli, bin: cmd.bin, args: cmd.args.map((a) => (a === prompt ? "<prompt>" : a)), cwd, stdin: cmd.stdin }));
 
   const child = spawn(process.env[`PSTACK_RUN_BIN_${cli.toUpperCase()}`] ?? cmd.bin, cmd.args, { cwd, stdio: ["pipe", "pipe", "inherit"] });

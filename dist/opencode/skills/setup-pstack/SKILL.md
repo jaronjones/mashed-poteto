@@ -17,7 +17,7 @@ Run `<scripts>/pstack-run --list --harness opencode`, per the `poteto-mode` skil
 
 ### 2. Load current state
 
-The default role-to-model mapping is the file shape shown in step 5 below. If `~/.config/pstack/models.md` already exists, read it and treat its `# budget` line and its role values as the current choices. Otherwise start from those defaults. A line whose role is not in step 5, such as `how critics`, is from a retired role. Drop it.
+The default role-to-model mapping is the file shape shown in step 5 below. If `~/.config/pstack/models.md` already exists, read it and treat its `# budget` line, its `bridge permissions` line, and its role values as the current choices. Otherwise start from those defaults. A line whose role is not in step 5, such as `how critics`, is from a retired role. Drop it.
 
 ### 3. Budget, map, and confirm
 
@@ -32,19 +32,27 @@ The default role-to-model mapping is the file shape shown in step 5 below. If `~
 
 **(c) Show the roles and confirm.** Show every role with its model, marking any real value not in the detected set as needing a choice. Also list each line step 2 dropped. Ask whether to accept as-is or change specific roles, offering the detected models plus `inherit-parent` and `auto` (both mean: this role runs on the parent chat model, which is how Auto users stay on Auto) as the options. Prefer the `question` tool over free text. For panel roles (arena runners, architect runners, interrogate reviewers) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. `arena cross-judge pool` is also a list, but Arena selects one value from it whose model family differs from the parent's when possible. `swarm workers` is the default model for every worker unless a race or comparison assigns another model per arm.
 
+**(d) Ask about unattended permissions.** Prefer the `question` tool. Name the current choice when the file records one, otherwise say the default is `default`. Explain in one sentence each, per the `poteto-mode` skill's `references/harness.md` → Permissions:
+
+- `default`: bridged write runs, loop ticks, and webhook runs keep each harness's sandbox. Safer, but a run that needs the network, a push, or a command outside your allowlist stops with a denial.
+- `full`: those runs get `bypassPermissions` or `danger-full-access`, the closest match to upstream's auto-run delegates. Only for machines and repos where you accept that.
+
+Never pick `full` for the user. On `full` in Codex, also tell them to run `./install.sh codex --full-access`, because Codex sets a subagent's sandbox in its agent file.
+
 ### 4. Validate
 
 Every real value written must be in the detected set, as `provider/model#effort`. `inherit-parent` and `auto` always pass. If a chosen real value is not available, stop and ask again.
 
 ### 5. Write the file
 
-Write `~/.config/pstack/models.md` as plain markdown, creating `~/.config/pstack/` if needed. It holds a `# budget` line with the chosen label and its target effort, and one line per role, using the same labels poteto-mode uses. Overwrite the whole file so re-runs stay idempotent. Shape:
+Write `~/.config/pstack/models.md` as plain markdown, creating `~/.config/pstack/` if needed. It holds a `# budget` line with the chosen label and its target effort, a `bridge permissions` line with the step 3(d) choice, and one line per role, using the same labels poteto-mode uses. Overwrite the whole file so re-runs stay idempotent. Shape:
 
 ```
 # pstack model configuration. One line per role. Delete a line to fall back to the skill default.
 # `inherit-parent` or `auto` as a value: the role runs on the parent chat model (the Parent spawn route). Alias entries in a panel list still count toward its fan-out.
 # Every harness reads this file. A value is valid while some installed CLI serves it. Each harness decides native or bridge per spawn.
 # budget: large (xhigh)
+bridge permissions: default
 feature, refactoring: xai/grok-4.7#xhigh
 bug-fix: xai/grok-4.7#xhigh
 perf-issue: xai/grok-4.7#xhigh

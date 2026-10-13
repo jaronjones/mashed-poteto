@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
+import { permissionArgs, resolvePermissions } from "./permissions.mjs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +13,7 @@ const HARNESSES = ["codex", "opencode", "claude", "grok"];
 const USAGE = `usage:
   pstack-loop start --harness <${HARNESSES.join("|")}> --session <id> --every <30s|10m|1h|1d>
                     --prompt-file <file> [--until '<shell check>'] [--max <n>] [--name <name>]
+                    [--permissions default|full]
   pstack-loop list
   pstack-loop stop <name>`;
 
@@ -55,17 +57,18 @@ function parseInterval(s) {
 }
 
 // The headless resume command for each harness. The prompt goes on stdin for codex.
-function resumeCommand(harness, session, prompt) {
+function resumeCommand(harness, session, prompt, permissions = "default") {
   const bin = process.env[`PSTACK_LOOP_BIN_${harness.toUpperCase()}`] || harness;
+  const perms = permissionArgs(harness, { readonly: false, permissions, resume: true });
   switch (harness) {
     case "codex":
-      return { bin, args: ["exec", "resume", session, "-"], input: prompt };
+      return { bin, args: ["exec", "resume", session, ...perms, "-"], input: prompt };
     case "opencode":
-      return { bin, args: ["run", "-s", session, prompt] };
+      return { bin, args: ["run", "-s", session, ...perms, prompt] };
     case "claude":
-      return { bin, args: ["-p", "-r", session, prompt] };
+      return { bin, args: ["-p", "-r", session, ...perms, prompt] };
     case "grok":
-      return { bin, args: ["-r", session, "-p", prompt] };
+      return { bin, args: ["-r", session, ...perms, "-p", prompt] };
   }
 }
 
@@ -76,6 +79,12 @@ function start(o) {
   const everyMs = parseInterval(o.every);
   const promptFile = path.resolve(o["prompt-file"]);
   if (!fs.existsSync(promptFile)) throw new UsageError(`no such prompt file: ${promptFile}`);
+  let permissions;
+  try {
+    permissions = resolvePermissions(o.permissions);
+  } catch (e) {
+    throw new UsageError(e.message);
+  }
   const max = o.max === undefined ? null : Number(o.max);
   if (max !== null && !(Number.isInteger(max) && max > 0)) throw new UsageError("--max must be a positive integer");
   const name = o.name ?? `${o.harness}-${o.session.slice(0, 8)}`;
@@ -93,6 +102,7 @@ function start(o) {
     everyMs,
     until: o.until ?? null,
     max,
+    permissions,
     promptFile,
     cwd: process.cwd(),
     status: "running",
@@ -139,7 +149,7 @@ async function run(name) {
 
     // Ticks run synchronously in this worker, so they never overlap.
     const prompt = fs.readFileSync(state.promptFile, "utf8");
-    const { bin, args, input } = resumeCommand(state.harness, state.session, prompt);
+    const { bin, args, input } = resumeCommand(state.harness, state.session, prompt, state.permissions);
     log(name, `tick ${state.ticks + 1}: ${bin} ${args.slice(0, -1).join(" ")} …`);
     const res = spawnSync(bin, args, {
       cwd: state.cwd,
@@ -201,6 +211,7 @@ async function main(argv) {
       max: { type: "string" },
       "prompt-file": { type: "string" },
       name: { type: "string" },
+      permissions: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
