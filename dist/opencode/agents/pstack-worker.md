@@ -1,6 +1,9 @@
 ---
 description: "General-purpose pstack subagent for tasks a pstack skill delegates, including bridge runs that call another model's CLI through pstack-run. Full tool access. Use when a pstack skill asks for a general-purpose or bridge spawn."
 mode: "subagent"
+permission:
+  "task": "allow"
+  "todowrite": "allow"
 ---
 
 # pstack worker

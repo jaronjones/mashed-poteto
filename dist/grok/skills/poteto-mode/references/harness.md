@@ -28,7 +28,7 @@ When a skill names a role, read that role's line in `~/.config/pstack/models.md`
 Every spawn resolves to one of three routes. Pick it per model value.
 
 1. **Parent.** The value is `inherit-parent` or `auto`. Spawn natively and leave the model unset.
-2. **Native.** The provider is `xai`, or the model is one you configured as a BYOK model in `~/.grok/config.toml`. Spawn natively with the `spawn_subagent` tool (collect results with `get_command_or_subagent_output`) and `model` set to the model part. Grok Build sets effort per model in config, not per spawn, so when the effort part differs from your configured effort and the difference matters to the task, use the bridge instead.
+2. **Native.** The provider is `xai`, or the model is one you configured as a BYOK model in `~/.grok/config.toml`, and the effort part is empty or equals the model's configured effort (`default=` in `pstack-run --list`). Spawn natively with the `spawn_subagent` tool (collect results with `get_command_or_subagent_output`) and `model` set to the model part. Grok Build sets effort per model in config, not per spawn, so any other effort takes the Bridge, which passes `--effort`. If the spawn tool exposes no `model` parameter in this session, take the Bridge.
 3. **Bridge.** Anything else. Grok Build cannot run that model in a subagent, so a subagent runs it through `pstack-run`, which calls whichever installed CLI serves the provider (`claude -p` for `anthropic`, `codex exec` for `openai`, `grok -p` for `xai`, `opencode run` for any provider OpenCode is configured with).
 
 ### Native spawn parameters
@@ -60,6 +60,8 @@ A panel role (arena runners, architect runners, interrogate reviewers) is a list
 
 A read-only spawn uses `pstack-reader` (native) or `--readonly` (bridge). Upstream sometimes asks for a non-read-only spawn because its read-only mode stripped MCP access. Keep that intent here: those spawns use `pstack-worker` so they keep every MCP tool, and the brief tells them not to edit files.
 
+A bridged session has the bridged CLI's MCP servers, not this session's. Before you bridge a seat whose job depends on a specific MCP server (an investigator that owns one source, a reviewer that spot-checks tickets), check that the bridged CLI has it (`<cli> mcp list`). If it does not, run that seat on the Parent route and say so in your reply. Never let a missing server pass as a null result.
+
 ## Isolation
 
 An isolated spawn gets its own checkout, so parallel agents never write the same files. Upstream ran these as cloud agents. Here:
@@ -76,9 +78,9 @@ Long-running programs (orchestrate, multi-phase plans) keep durable state in `~/
 
 `<scripts>/pstack-run --list --harness grok` prints every model reachable from this machine, one per line:
 
-`provider/model<TAB>via <cli>[<TAB>efforts=a,b,c][<TAB>native]`
+`provider/model<TAB>via <cli>[<TAB>efforts=a,b,c][<TAB>default=<effort>][<TAB>native]`
 
-`via` names the CLI a Bridge spawn would use. `efforts=` lists the efforts that CLI offers for the model, when it reports them. A requested effort above the top listed one runs at the highest listed effort at or below it (Grok tops out at `xhigh`). `native` marks models Grok Build can run on the Native route. `setup-pstack` uses this list.
+`via` names the CLI a Bridge spawn would use. `efforts=` lists the efforts that CLI offers for the model, when it reports them. `default=` is the effort the CLI uses when none is passed. A requested effort above the top listed one runs at the highest listed effort at or below it (Grok tops out at `xhigh`). `native` marks models Grok Build can run on the Native route. `setup-pstack` uses this list.
 
 ## Transcripts
 
@@ -96,6 +98,9 @@ Never read another workspace's transcripts unless the user asks. `list` and `cur
 Use `/loop <interval> <tick prompt>` (minimum 60s, expires after 7 days). For event watches, use the `monitor` tool or a background watcher. The `scheduler_create` tool covers one-off timed wakes.
 
 Where a skill says "arm the `/loop` command with interval X", use the mechanism above. Always give the loop a check that can pass or fail, not a duration.
+
+A `/loop` expires after 7 days. A program that runs longer puts "re-arm this loop if it expires within a day" in its tick prompt.
+
 
 ## Sticky mode
 
