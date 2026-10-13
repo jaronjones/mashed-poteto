@@ -18,7 +18,7 @@ In this page you install the plugin, pick which models pstack uses, and run your
 codex plugin marketplace add <path-or-git-url-of-mashed-poteto>
 ```
 
-In a Codex session, open `/plugins` and install pstack. Start a new session so the skills load.
+Then run `codex plugin add pstack`, or open `/plugins` in a Codex session and install it there. Codex plugins can't carry subagents, so also run `./install.sh codex --plugin` from a clone to install pstack's four agents. Start a new session so the skills load.
 {{/if}}{{#if grok}}From a clone of mashed-poteto, run:
 
 ```text

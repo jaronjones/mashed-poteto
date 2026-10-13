@@ -60,6 +60,8 @@ A panel role (arena runners, architect runners, interrogate reviewers) is a list
 
 A read-only spawn uses `pstack-reader` (native) or `--readonly` (bridge). Upstream sometimes asks for a non-read-only spawn because its read-only mode stripped MCP access. Keep that intent here: those spawns use `pstack-worker` so they keep every MCP tool, and the brief tells them not to edit files.
 
+A bridged session has the bridged CLI's MCP servers, not this session's. Before you bridge a seat whose job depends on a specific MCP server (an investigator that owns one source, a reviewer that spot-checks tickets), check that the bridged CLI has it (`<cli> mcp list`). If it does not, run that seat on the Parent route and say so in your reply. Never let a missing server pass as a null result.
+
 ## Isolation
 
 An isolated spawn gets its own checkout, so parallel agents never write the same files. Upstream ran these as cloud agents. Here:
@@ -76,9 +78,9 @@ Long-running programs (orchestrate, multi-phase plans) keep durable state in `~/
 
 `<scripts>/pstack-run --list --harness codex` prints every model reachable from this machine, one per line:
 
-`provider/model<TAB>via <cli>[<TAB>efforts=a,b,c][<TAB>native]`
+`provider/model<TAB>via <cli>[<TAB>efforts=a,b,c][<TAB>default=<effort>][<TAB>native]`
 
-`via` names the CLI a Bridge spawn would use. `efforts=` lists the efforts that CLI offers for the model, when it reports them. A requested effort above the top listed one runs at the highest listed effort at or below it (Grok tops out at `xhigh`). `native` marks models Codex CLI can run on the Native route. `setup-pstack` uses this list.
+`via` names the CLI a Bridge spawn would use. `efforts=` lists the efforts that CLI offers for the model, when it reports them. `default=` is the effort the CLI uses when none is passed. A requested effort above the top listed one runs at the highest listed effort at or below it (Grok tops out at `xhigh`). `native` marks models Codex CLI can run on the Native route. `setup-pstack` uses this list.
 
 ## Transcripts
 
@@ -100,6 +102,9 @@ Codex has no recurring loop. For "run until done" inside one session, keep worki
 Get `<id>` from `pstack-transcripts current --harness codex --id`. `pstack-loop list` and `pstack-loop stop <name>` manage armed loops.
 
 Where a skill says "arm `pstack-loop` (Codex has no recurring loop; see harness.md → Loops) with interval X", use the mechanism above. Always give the loop a check that can pass or fail, not a duration.
+
+A `pstack-loop` tick is a separate headless resume of this session. It sees the session's history, but it cannot reach subagents the live session spawned, and its output goes to `~/.config/pstack/loops/<name>.log`, not to the chat. Write tick prompts that probe durable state (the agent store, branches, PRs) and send status where the operator will see it (a PR comment, team chat, or a `pstack-hookd` route).
+
 
 ## Sticky mode
 

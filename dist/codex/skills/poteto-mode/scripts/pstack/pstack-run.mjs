@@ -80,13 +80,13 @@ function catalog(cli) {
     const cache = readJson(join(process.env.CODEX_HOME || join(home, ".codex"), "models_cache.json"));
     return (cache?.models ?? [])
       .filter((m) => m.visibility !== "hide")
-      .map((m) => ({ id: `openai/${m.slug}`, efforts: (m.supported_reasoning_levels ?? []).map((l) => l.effort) }));
+      .map((m) => ({ id: `openai/${m.slug}`, efforts: (m.supported_reasoning_levels ?? []).map((l) => l.effort), defaultEffort: m.default_reasoning_level }));
   }
   if (cli === "grok") {
     const cache = readJson(join(home, ".grok", "models_cache.json"));
     const fromCache = Object.entries(cache?.models ?? {})
       .filter(([, m]) => !m.info?.hidden)
-      .map(([id, m]) => ({ id: `xai/${id}`, efforts: (m.info?.reasoning_efforts ?? []).map((e) => e.value) }));
+      .map(([id, m]) => ({ id: `xai/${id}`, efforts: (m.info?.reasoning_efforts ?? []).map((e) => e.value), defaultEffort: m.info?.reasoning_effort }));
     if (fromCache.length) return fromCache;
     const out = spawnSync("grok", ["models"], { encoding: "utf8" }).stdout ?? "";
     return [...out.matchAll(/^\s*[*-]\s+([\w.-]+)/gm)].map(([, id]) => ({ id: `xai/${id}`, efforts: [] }));
@@ -110,7 +110,8 @@ function list(harness, installed) {
       seen.add(m.id);
       const native = harness && m.id.startsWith(`${NATIVE_PROVIDER[harness]}/`) ? "\tnative" : "";
       const efforts = m.efforts.length ? `\tefforts=${m.efforts.join(",")}` : "";
-      process.stdout.write(`${m.id}\tvia ${cli}${efforts}${native}\n`);
+      const fallback = m.defaultEffort ? `\tdefault=${m.defaultEffort}` : "";
+      process.stdout.write(`${m.id}\tvia ${cli}${efforts}${fallback}${native}\n`);
     }
   }
 }

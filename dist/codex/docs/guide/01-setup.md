@@ -10,7 +10,7 @@ Add this repo's marketplace to Codex, then install pstack from the plugin browse
 codex plugin marketplace add <path-or-git-url-of-mashed-poteto>
 ```
 
-In a Codex session, open `/plugins` and install pstack. Start a new session so the skills load.
+Then run `codex plugin add pstack`, or open `/plugins` in a Codex session and install it there. Codex plugins can't carry subagents, so also run `./install.sh codex --plugin` from a clone to install pstack's four agents. Start a new session so the skills load.
 
 `./install.sh <claude|codex|opencode|grok|all>` also works for any harness. It installs at user level and refuses to overwrite a skill with the same name unless you pass `--force`.
 

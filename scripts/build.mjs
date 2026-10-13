@@ -130,7 +130,8 @@ function renderAgent(fileText, profile, file) {
       return emitFrontmatter([
         ["description", description],
         ["mode", "subagent"],
-        ["permission", readonly ? { edit: "deny" } : undefined],
+        // OpenCode denies `task` and `todowrite` inside subagents unless the agent grants them.
+        ["permission", readonly ? { edit: "deny" } : { task: "allow", todowrite: "allow" }],
       ]) + body;
     case "codex": {
       if (body.includes("'''")) throw new Error(`${file}: body contains ''' and cannot be a TOML literal string`);
