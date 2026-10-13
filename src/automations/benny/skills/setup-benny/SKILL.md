@@ -102,6 +102,7 @@ Ask for or confirm:
 - Route harness that runs both routes
 - Route checkout directory, a clone of the repository on the default branch that the routes use as `--cwd`
 - Slack signing secret environment variable name
+- Triage and repro concurrency
 - Model value for triage, repro, code work, and media review
 
 Use only `provider/model#effort` values whose model `pstack-run --list` shows on the machine that runs `pstack-hookd`, or `inherit-parent` for the route harness's default model. Do not guess a value and do not carry over a private default. The triage and repro values become each route's `--model`. Runs spawn code-work and media-review subagents with their values per `harness.md` → Spawning.
@@ -161,7 +162,9 @@ Confirm that the named skill can:
 - Start and stop a recording
 - Clean up its processes and temporary data
 
-If any capability is missing, leave the repro route uncreated. It must fail closed rather than claim a reproduction it did not perform.
+If any capability is missing, leave the repro route uncreated.
+
+Ask how many repros the adapter can run at once without sharing an app instance, port, profile, account state, or screen recording. Set `routes.reproduce_concurrency` to that number. Use 1 when the answer is unclear. It must fail closed rather than claim a reproduction it did not perform.
 
 ## 7. Prepare the live routes
 
@@ -202,8 +205,11 @@ Create it as a Slack route:
 ```
 pstack-hookd add benny-triage --harness <routes.harness> --model <models.triage> \
   --cwd <route checkout> --prompt-file <routes.triage_prompt_path> \
-  --slack-signing-secret-env <routes.slack_signing_secret_env>
+  --slack-signing-secret-env <routes.slack_signing_secret_env> \
+  --concurrency <routes.triage_concurrency> --isolate worktree --base <repository.default_branch>
 ```
+
+Triage writes no files, but each run still gets its own worktree. Parallel runs then never see each other's state or a moving checkout.
 
 Then wire Slack to it:
 
@@ -230,12 +236,15 @@ Create it as a webhook route on the same machine:
 
 ```
 pstack-hookd add benny-reproduce --harness <routes.harness> --model <models.reproduce> \
-  --cwd <route checkout> --prompt-file <routes.reproduce_prompt_path>
+  --cwd <route checkout> --prompt-file <routes.reproduce_prompt_path> \
+  --concurrency <routes.reproduce_concurrency> --isolate worktree --base <repository.default_branch>
 ```
 
 `add` writes the sender key to the key file and prints its path. Set `routes.reproduce_key_file` and `routes.reproduce_url` from that output. Never read, print, or copy the key. Keep this route on localhost. Restart `pstack-hookd serve`.
 
-Both routes share one checkout. A route never runs twice at once and holds at most one pending wake, so reports that arrive while both slots are busy are dropped and logged. Tell the user this limit before enabling normal traffic.
+Both routes start from one checkout, and every run works in its own worktree of the default branch. Keep that branch current in the route checkout, for example with a scheduled `git pull --ff-only`. Reports beyond the concurrency wait in order in each route's queue.
+
+A repro run that commits or leaves changes keeps its worktree under `~/.config/pstack/hooks/worktrees/benny-reproduce/`, and the `pstack-hookd` log names the path. That keeps a draft-fix branch safe until its pull request lands. Tell the user to remove kept worktrees with `git worktree remove` once they are done with them.
 
 ### Existing routes
 

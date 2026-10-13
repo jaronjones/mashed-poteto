@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,23 +20,38 @@ const env = {
   TEST_SLACK_SECRET: slackSecret,
 };
 
-// The fake pstack-run records its args and the prompt it was given, one JSON file per run.
+// The fake pstack-run records its args and prompt, one JSON file per run. Payload fields steer it:
+// tag and seq go to an order log, sleep holds the run open, dirty leaves a file in its cwd.
 writeFileSync(
   fakeRun,
   `#!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const prompt = readFileSync(args[args.indexOf("--prompt-file") + 1], "utf8");
+const cwd = args[args.indexOf("--cwd") + 1];
+const fence = "\\x60\\x60\\x60";
+const payload = JSON.parse(prompt.split(fence + "json\\n")[1].split("\\n" + fence)[0]);
 mkdirSync(process.env.RECORD_DIR, { recursive: true });
-writeFileSync(process.env.RECORD_DIR + "/" + Date.now() + "-" + process.pid + ".json", JSON.stringify({ args, prompt }));
+writeFileSync(process.env.RECORD_DIR + "/" + Date.now() + "-" + process.pid + ".json", JSON.stringify({ args, prompt, cwd, sawReadme: existsSync(cwd + "/README") }));
+const order = (event) => payload.tag && appendFileSync(process.env.RECORD_DIR + "/" + payload.tag + ".order", event + " " + payload.seq + "\\n");
+order("start");
+if (payload.sleep) await new Promise((ok) => setTimeout(ok, payload.sleep));
+if (payload.dirty) writeFileSync(cwd + "/left-behind.txt", "x");
+order("end");
 `,
 );
 chmodSync(fakeRun, 0o755);
 const promptFile = join(tmp, "prompt.md");
 writeFileSync(promptFile, "Handle the button press.\n");
+const repo = join(tmp, "repo");
+const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+execFileSync("git", ["init", "-q", repo]);
+writeFileSync(join(repo, "README"), "hi\n");
+git("add", "README");
+git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init");
 
 const cli = (...args) => execFileSync(process.execPath, [hookd, ...args], { env, encoding: "utf8" });
-const runs = () => (existsSync(recordDir) ? readdirSync(recordDir).map((f) => JSON.parse(readFileSync(join(recordDir, f), "utf8"))) : []);
+const runs = () => (existsSync(recordDir) ? readdirSync(recordDir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(join(recordDir, f), "utf8"))) : []);
 const clearRuns = () => rmSync(recordDir, { recursive: true, force: true });
 
 async function waitFor(check, ms = 5000) {
@@ -55,6 +70,10 @@ let addOutput;
 before(async () => {
   addOutput = cli("add", "ui", "--harness", "claude", "--prompt-file", promptFile, "--cwd", tmp);
   cli("add", "slack", "--harness", "codex", "--prompt-file", promptFile, "--cwd", tmp, "--slack-signing-secret-env", "TEST_SLACK_SECRET");
+  cli("add", "fifo", "--harness", "claude", "--prompt-file", promptFile, "--cwd", tmp);
+  cli("add", "pair", "--harness", "claude", "--prompt-file", promptFile, "--cwd", tmp, "--concurrency", "2");
+  cli("add", "full", "--harness", "claude", "--prompt-file", promptFile, "--cwd", tmp, "--queue", "1");
+  cli("add", "iso", "--harness", "claude", "--prompt-file", promptFile, "--cwd", repo, "--isolate", "worktree", "--concurrency", "2");
   server = spawn(process.execPath, [hookd, "serve", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
   base = await new Promise((ok, no) => {
     server.stdout.on("data", (d) => {
@@ -171,4 +190,67 @@ test("slack thread replies and bot posts do not dispatch", async () => {
   }
   await sleep(300);
   assert.equal(runs().length, 0);
+});
+
+const post = (name, payload) =>
+  fetch(`${base}/hooks/${name}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${readFileSync(join(env.PSTACK_CONFIG_DIR, "hooks", `${name}.key`), "utf8").trim()}` },
+    body: JSON.stringify(payload),
+  });
+const order = (tag) => {
+  const file = join(recordDir, `${tag}.order`);
+  return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n") : [];
+};
+
+test("a route with concurrency 1 runs queued payloads one at a time in FIFO order", async () => {
+  clearRuns();
+  for (const seq of [1, 2, 3]) assert.equal((await post("fifo", { tag: "fifo", seq, sleep: 150 })).status, 202);
+  await waitFor(() => order("fifo").length === 6);
+  assert.deepEqual(order("fifo"), ["start 1", "end 1", "start 2", "end 2", "start 3", "end 3"]);
+});
+
+test("a route with concurrency 2 runs two at once", async () => {
+  clearRuns();
+  for (const seq of [1, 2]) assert.equal((await post("pair", { tag: "pair", seq, sleep: 400 })).status, 202);
+  await waitFor(() => order("pair").length === 4);
+  assert.deepEqual(order("pair").slice(0, 2).sort(), ["start 1", "start 2"]);
+});
+
+test("a full queue answers 429", async () => {
+  clearRuns();
+  const statuses = [];
+  for (const seq of [1, 2, 3]) statuses.push((await post("full", { tag: "full", seq, sleep: 400 })).status);
+  assert.deepEqual(statuses, [202, 202, 429]);
+  await waitFor(() => order("full").length === 4);
+});
+
+test("an isolated run gets its own worktree as --cwd, removed after a clean run and kept after a dirty one", async () => {
+  clearRuns();
+  const worktrees = join(env.PSTACK_CONFIG_DIR, "hooks", "worktrees", "iso");
+  assert.equal((await post("iso", { tag: "iso", seq: 1 })).status, 202);
+  await waitFor(() => order("iso").length === 2);
+  const [run] = runs();
+  assert.ok(run.cwd.startsWith(worktrees), run.cwd);
+  assert.ok(run.sawReadme, "the worktree is a checkout of the repo");
+  await waitFor(() => !existsSync(run.cwd));
+  assert.equal(git("worktree", "list").split("\n").length, 1);
+
+  clearRuns();
+  assert.equal((await post("iso", { tag: "iso", seq: 2, dirty: true })).status, 202);
+  await waitFor(() => order("iso").length === 2);
+  const [dirty] = runs();
+  await sleep(300);
+  assert.ok(existsSync(join(dirty.cwd, "left-behind.txt")));
+  assert.equal(git("worktree", "list").split("\n").length, 2);
+});
+
+test("add warns when parallel runs share a checkout", () => {
+  const r = spawnSync(process.execPath, [hookd, "add", "shared2", "--harness", "claude", "--prompt-file", promptFile, "--cwd", tmp, "--concurrency", "3"], { env, encoding: "utf8" });
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.includes("up to 3 at once"));
+  assert.match(r.stderr, /warning: 3 runs will share/);
+  const iso = spawnSync(process.execPath, [hookd, "add", "iso2", "--harness", "claude", "--prompt-file", promptFile, "--cwd", repo, "--concurrency", "3", "--isolate", "worktree"], { env, encoding: "utf8" });
+  assert.equal(iso.status, 0);
+  assert.doesNotMatch(iso.stderr, /warning/);
 });

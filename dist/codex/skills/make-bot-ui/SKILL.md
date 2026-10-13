@@ -54,7 +54,7 @@ The server POSTs to the route URL with:
 - timeout: 8 seconds
 - one try, no retry
 
-The POST returns HTTP 202 when the route accepts the wake. A route never runs twice at once. It holds one pending wake while a run is busy and answers HTTP 429 when that slot is full.
+The POST returns HTTP 202 when the route accepts the wake. A route runs one wake at a time unless it was added with `--concurrency`. Later wakes wait in its queue. It answers HTTP 429 only when the queue is full.
 Before you tell the user that the UI is live, probe once with a harmless payload.
 Use an action that the prompt ignores.
 

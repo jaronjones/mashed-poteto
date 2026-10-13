@@ -7,6 +7,8 @@ automations:
 routes:
   harness: "claude"
   slack_signing_secret_env: "BENNY_SLACK_SIGNING_SECRET"
+  triage_concurrency: 4
+  reproduce_concurrency: 1
   triage_prompt_path: ".pstack/benny/triage-route-prompt.md"
   reproduce_prompt_path: ".pstack/benny/reproduce-route-prompt.md"
   reproduce_url: "http://127.0.0.1:8787/hooks/benny-reproduce"
