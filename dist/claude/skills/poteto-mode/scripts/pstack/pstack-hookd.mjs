@@ -135,7 +135,7 @@ function add(args) {
 
 function remove(args) {
   const [name] = args;
-  if (!name || !existsSync(routePath(name))) fail(`no route named ${name}`);
+  if (!name || !/^[a-z0-9][a-z0-9-]*$/.test(name) || !existsSync(routePath(name))) fail(`no route named ${name}`);
   rmSync(routePath(name));
   rmSync(keyPath(name), { force: true });
   console.log(`removed route ${name}`);
@@ -198,7 +198,14 @@ function startRun(route, payload, state) {
   const base = join(logDir, runId);
   // Backticks only occur inside JSON strings, so escaping them keeps the data intact and the fence unbreakable.
   const json = JSON.stringify(payload, null, 2).replace(/`/g, "\\u0060");
-  const prompt = `${readFileSync(route.promptFile, "utf8").trimEnd()}\n\n${UNTRUSTED_FENCE}\n\n\`\`\`json\n${json}\n\`\`\`\n`;
+  let routePrompt;
+  try {
+    routePrompt = readFileSync(route.promptFile, "utf8");
+  } catch (err) {
+    console.error(`pstack-hookd: ${route.name} cannot read its prompt file, run skipped: ${err.message}`);
+    return startNext(route, state);
+  }
+  const prompt = `${routePrompt.trimEnd()}\n\n${UNTRUSTED_FENCE}\n\n\`\`\`json\n${json}\n\`\`\`\n`;
   writeFileSync(`${base}.prompt.md`, prompt, { mode: 0o600 });
 
   let worktree = null;
@@ -216,12 +223,15 @@ function startRun(route, payload, state) {
   const env = { ...process.env };
   for (const r of loadRoutes()) if (r.slackSigningSecretEnv) delete env[r.slackSigningSecretEnv];
   console.error(`pstack-hookd: ${route.name} run started, log ${base}.log`);
-  const child = spawn(pstackRun, args, { cwd, env, stdio: ["ignore", log, log] });
+  // Own process group, so shutdown can stop the agent CLI under pstack-run too.
+  const child = spawn(pstackRun, args, { cwd, env, stdio: ["ignore", log, log], detached: true });
   state.running.add(child);
   const finish = (code) => {
     if (!state.running.delete(child)) return;
     console.error(`pstack-hookd: ${route.name} run finished (${code})`);
-    if (worktree) cleanWorktree(route, worktree);
+    // A run stopped by shutdown may still have agent work in flight; keep its worktree.
+    if (worktree && !shuttingDown) cleanWorktree(route, worktree);
+    else if (worktree) console.error(`pstack-hookd: ${route.name} kept worktree ${worktree.dir} at shutdown`);
     startNext(route, state);
   };
   child.on("error", (err) => finish(err.message));
@@ -357,7 +367,11 @@ function serve(args) {
     let left = children.length;
     for (const child of children) {
       child.once("exit", () => --left === 0 && process.exit(0));
-      child.kill("SIGTERM");
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        child.kill("SIGTERM");
+      }
     }
   };
   process.on("SIGTERM", stop);

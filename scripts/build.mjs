@@ -6,9 +6,11 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statS
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { profiles, harnessIds } from "../harness/profiles.mjs";
 
-const root = resolve(dirname(new URL(import.meta.url).pathname), "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "src");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const skillNames = readdirSync(join(src, "skills")).filter((n) => statSync(join(src, "skills", n)).isDirectory());
@@ -273,7 +275,7 @@ export function buildAll(outRoot) {
   return problems;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const check = process.argv.includes("--check");
   const outRoot = check ? mkdtempSync(join(tmpdir(), "pstack-build-")) : join(root, "dist");
   const problems = buildAll(outRoot);

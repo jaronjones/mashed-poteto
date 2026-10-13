@@ -41,6 +41,14 @@ function writeState(state) {
 
 const log = (name, msg) => fs.appendFileSync(logFile(name), `${new Date().toISOString()} ${msg}\n`);
 
+// A recorded pid is ours only while it still runs this loop's worker. After a crash or reboot
+// the pid can belong to an unrelated process, which must never be signalled.
+function isWorker(state) {
+  if (!state?.pid || !alive(state.pid)) return false;
+  const cmd = spawnSync("ps", ["-o", "command=", "-p", String(state.pid)], { encoding: "utf8" }).stdout ?? "";
+  return cmd.includes("pstack-loop") && cmd.includes(` run ${state.name}`);
+}
+
 function alive(pid) {
   try {
     process.kill(pid, 0);
@@ -57,18 +65,18 @@ function parseInterval(s) {
 }
 
 // The headless resume command for each harness. The prompt goes on stdin for codex.
-function resumeCommand(harness, session, prompt, permissions = "default") {
+function resumeCommand(harness, session, prompt, promptFile, permissions = "default") {
   const bin = process.env[`PSTACK_LOOP_BIN_${harness.toUpperCase()}`] || harness;
   const perms = permissionArgs(harness, { readonly: false, permissions, resume: true });
   switch (harness) {
     case "codex":
-      return { bin, args: ["exec", "resume", session, ...perms, "-"], input: prompt };
+      return { bin, args: ["exec", "resume", session, "--skip-git-repo-check", ...perms, "-"], input: prompt };
     case "opencode":
-      return { bin, args: ["run", "-s", session, ...perms, prompt] };
+      return { bin, args: ["run", "-s", session, ...perms, "-f", promptFile, "--", "Follow the instructions in the attached prompt file exactly."] };
     case "claude":
-      return { bin, args: ["-p", "-r", session, ...perms, prompt] };
+      return { bin, args: ["-p", "-r", session, ...perms], input: prompt };
     case "grok":
-      return { bin, args: ["-r", session, ...perms, "-p", prompt] };
+      return { bin, args: ["-r", session, ...perms, "--prompt-file", promptFile] };
   }
 }
 
@@ -92,7 +100,7 @@ function start(o) {
 
   fs.mkdirSync(loopsDir(), { recursive: true });
   const prev = readState(name);
-  if (prev?.status === "running" && alive(prev.pid)) throw new UsageError(`loop ${name} is already running (pid ${prev.pid})`);
+  if (prev?.status === "running" && isWorker(prev)) throw new UsageError(`loop ${name} is already running (pid ${prev.pid})`);
 
   const state = {
     name,
@@ -149,8 +157,8 @@ async function run(name) {
 
     // Ticks run synchronously in this worker, so they never overlap.
     const prompt = fs.readFileSync(state.promptFile, "utf8");
-    const { bin, args, input } = resumeCommand(state.harness, state.session, prompt, state.permissions);
-    log(name, `tick ${state.ticks + 1}: ${bin} ${args.slice(0, -1).join(" ")} …`);
+    const { bin, args, input } = resumeCommand(state.harness, state.session, prompt, state.promptFile, state.permissions);
+    log(name, `tick ${state.ticks + 1}: ${bin} ${args.join(" ")}`);
     const res = spawnSync(bin, args, {
       cwd: state.cwd,
       input,
@@ -174,7 +182,7 @@ function list() {
   if (files.length === 0) return console.log("pstack-loop: no loops");
   for (const f of files.sort()) {
     const s = readState(f.slice(0, -5));
-    const status = s.status === "running" && !(s.pid && alive(s.pid)) ? "dead" : s.status;
+    const status = s.status === "running" && !isWorker(s) ? "dead" : s.status;
     console.log([s.name, status, s.harness, s.session, `every ${s.every}`, `ticks ${s.ticks}`, s.until ?? "-"].join("\t"));
   }
 }
@@ -185,7 +193,7 @@ function stop(name) {
   if (!state) throw new UsageError(`no loop named ${name}`);
   if (state.status !== "running") return console.log(`pstack-loop: ${name} already ${state.status}`);
   writeState({ ...state, status: "stopped", reason: "stopped by user", endedAt: new Date().toISOString() });
-  if (state.pid && alive(state.pid)) {
+  if (isWorker(state)) {
     // The worker leads its own process group; kill the group so a running tick dies too.
     try {
       process.kill(-state.pid, "SIGTERM");
@@ -220,7 +228,11 @@ async function main(argv) {
   if (cmd === "start") return start(o);
   if (cmd === "list") return list();
   if (cmd === "stop") return stop(name);
-  if (cmd === "run") return run(name);
+  if (cmd === "run")
+    return run(name).catch((e) => {
+      finish(name, "failed", e.message);
+      throw e;
+    });
   throw new UsageError(`unknown command ${cmd}`);
 }
 

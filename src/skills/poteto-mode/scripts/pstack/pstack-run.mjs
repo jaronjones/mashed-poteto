@@ -3,13 +3,14 @@
 // See ../../references/harness.md → Bridge spawn and Detecting models.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { permissionArgs, resolvePermissions } from "./permissions.mjs";
 
-const here = dirname(new URL(import.meta.url).pathname);
+const here = dirname(fileURLToPath(import.meta.url));
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const CLIS = ["claude", "codex", "grok", "opencode"];
 const PROVIDER_CLI = { anthropic: "claude", openai: "codex", xai: "grok" };
@@ -222,7 +223,8 @@ export function buildCommand(cli, { spec, readonly, permissions = "default", cwd
           ...(effort ? ["--variant", effort] : []),
           ...(resume ? ["-s", resume] : []),
           ...extra,
-          readFileSync(promptFile, "utf8"),
+          // The prompt rides as an attached file: a bare argument could parse as a flag or exceed ARG_MAX.
+          "-f", promptFile, "--", "Follow the instructions in the attached prompt file exactly.",
         ],
         stdin: false,
         parse: (stdout) => {
@@ -285,11 +287,12 @@ async function main() {
   if (values.agent) prompt = agentPreamble(values.agent, cli) + prompt;
 
   const cwd = resolve(values.cwd ?? process.cwd());
-  const workDir = join(process.env.TMPDIR || "/tmp", "pstack", `run-${process.pid}-${Date.now()}`);
-  mkdirSync(workDir, { recursive: true });
+  // Private per-run dir (0700, files 0600): prompts can carry webhook payloads.
+  const workDir = mkdtempSync(join(tmpdir(), "pstack-run-"));
+  process.on("exit", () => rmSync(workDir, { recursive: true, force: true }));
   const promptFile = join(workDir, "prompt.md");
   const outFile = values.out ? resolve(values.out) : join(workDir, "out.md");
-  writeFileSync(promptFile, prompt);
+  writeFileSync(promptFile, prompt, { mode: 0o600 });
 
   let permissions;
   try {
@@ -298,9 +301,15 @@ async function main() {
     fail(2, e.message);
   }
   const cmd = buildCommand(cli, { spec, readonly: values.readonly, permissions, cwd, resume: values.resume, promptFile, outFile: join(workDir, "last.md") });
-  if (values["dry-run"]) return console.log(JSON.stringify({ cli, bin: cmd.bin, args: cmd.args.map((a) => (a === prompt ? "<prompt>" : a)), cwd, stdin: cmd.stdin }));
+  if (values["dry-run"]) return console.log(JSON.stringify({ cli, bin: cmd.bin, args: cmd.args, cwd, stdin: cmd.stdin }));
 
   const child = spawn(process.env[`PSTACK_RUN_BIN_${cli.toUpperCase()}`] ?? cmd.bin, cmd.args, { cwd, stdio: ["pipe", "pipe", "inherit"] });
+  child.on("error", (e) => fail(1, `cannot start ${cli}: ${e.message}`));
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"])
+    process.on(signal, () => {
+      child.kill(signal);
+      fail(128 + { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 }[signal], `stopped by ${signal}`);
+    });
   let stdout = "";
   child.stdout.on("data", (d) => (stdout += d));
   if (cmd.stdin) child.stdin.end(prompt);
@@ -319,4 +328,4 @@ async function main() {
   if (code !== 0 || result.error) fail(code || 1, `${cli} failed: ${result.error ?? `exit ${code}`}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("/pstack-run")) await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main();

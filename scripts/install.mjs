@@ -5,10 +5,11 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { harnessIds } from "../harness/profiles.mjs";
 
-const repo = resolve(dirname(new URL(import.meta.url).pathname), "..");
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.HOME || homedir();
 const pstackHome = process.env.PSTACK_HOME || join(home, ".local", "share", "pstack");
 const binDir = process.env.PSTACK_BIN_DIR || join(home, ".local", "bin");
@@ -137,10 +138,12 @@ if (!values.uninstall) {
   const scripts = join(pstackHome, harnessIds[0], "skills", "poteto-mode", "scripts", "pstack");
   for (const t of tools) {
     const link = join(binDir, t);
-    if (exists(link) && !lstatSync(link).isSymbolicLink() && !values.force) {
+    const foreign = exists(link) && !lstatSync(link).isSymbolicLink();
+    if (foreign && !values.force) {
       console.log(`skip ${link}: exists and is not a pstack shim`);
       continue;
     }
+    if (foreign) act(`move aside ${link}`, () => renameSync(link, `${link}.pstack-backup-${Date.now()}`));
     act(`link ${link}`, () => {
       mkdirSync(binDir, { recursive: true });
       rmSync(link, { force: true });
