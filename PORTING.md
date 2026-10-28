@@ -1,6 +1,6 @@
 # Porting conventions
 
-mashed-poteto is a port of [pstack](https://github.com/cursor/plugins/tree/main/pstack) (Cursor) to Claude Code, Codex CLI, OpenCode and Grok Build. The port is based on cursor/plugins@dbf49813a39c1a5389c5e28cb8e4c1c2379e2454. `src/` holds the ported, harness-neutral source. `scripts/build.mjs` renders `src/` into `dist/<harness>/` for each target.
+mashed-poteto is a port of [pstack](https://github.com/cursor/plugins/tree/main/pstack) (Cursor) to Claude Code, Codex CLI, OpenCode and Grok Build. The port is based on cursor/plugins@c742dd61706fbacc1b95f1a20b7b988cf096ce6c. `src/` holds the ported, harness-neutral source. `scripts/build.mjs` renders `src/` into `dist/<harness>/` for each target.
 
 ## Rules for `src/`
 

@@ -99,7 +99,7 @@ An isolated spawn gets its own checkout, so parallel agents never write the same
 
 ## Agent store
 
-Long-running programs (orchestrate, multi-phase plans) keep durable state in `~/.config/pstack/store/<repo-name>/`: the ledger, `units.tsv`, standing orders, plan files, and the inbox. Upstream kept these in its agent store. Every harness and every bridged run reads the same path, so a program survives a harness restart or a switch to another harness. Pass it to the `orch` script with `--store` or `ORCH_STORE`.
+Long-running programs (orchestrate, multi-phase plans) keep durable state in `~/.config/pstack/store/<repo-name>/`: the ledger, `units.tsv`, standing orders, plan files, and the inbox. Upstream kept these in its agent store. Every harness and every bridged run reads the same path, so a program survives a harness restart or a switch to another harness.
 
 ## Detecting models
 

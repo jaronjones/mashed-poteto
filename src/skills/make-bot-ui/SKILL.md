@@ -1,5 +1,5 @@
 ---
-name: Make Bot UI
+name: make-bot-ui
 description: >-
   Use when building a custom UI (page, dashboard, buttons) that should wake an
   agent run over a local webhook (pstack-hookd), when the route's sender key

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "pstack",
-  "version": "0.15.23-port.1",
+  "version": "0.15.36-port.1",
   "description": "pstack, ported from Cursor to Claude Code, Codex CLI, OpenCode and Grok Build. if you want to go fast, go deep first.",
   "author": {
     "name": "Lauren Tan (pstack); harness port: mashed-poteto"

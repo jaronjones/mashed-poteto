@@ -14,6 +14,7 @@ It copies the skills and agents into your user-level OpenCode config. Start a ne
 
 `./install.sh <claude|codex|opencode|grok|all>` also works for any harness. It installs at user level and refuses to overwrite a skill with the same name unless you pass `--force`.
 
+
 ## Pick your models
 
 Run:
@@ -32,13 +33,15 @@ You might be wondering what happens if you'd rather a role ran on your chat's ow
 
 pstack's defaults mix model families. A role on a model OpenCode can't run in a subagent goes through `pstack-run`, which hands the prompt to the CLI that serves that model (`claude`, `codex`, `grok`, or `opencode`). That CLI has to be installed and logged in. `pstack-run --list` shows every model this machine can reach, and [`harness.md`](../../skills/poteto-mode/references/harness.md#spawning) has the details.
 
-## Accept the verification offer, or don't
+## Accept the verification offers, or don't
 
 At the end of setup, `/setup-pstack` looks for a way to prove app behavior in your project, either a `verify-*` skill or an existing harness. If it finds neither, it offers once to generate one with [`/create-verification-skill`](../../skills/create-verification-skill/SKILL.md).
 
 Say yes and it writes `verify-<app>/` under `.opencode/skills`, a project-local skill that teaches agents to drive your app the way a user does. It proves the skill works once before handing it over. Say no and setup moves on. You can run `/create-verification-skill` yourself any time. [Verify and ship](./06-verify-and-ship.md#create-a-project-verification-skill) covers it in depth.
 
 If you're new to pstack, say yes. An agent that can check its own work keeps going until the check passes. An agent that can't hands every result back to you to check by hand. Of everything in this guide, the verification skill pays off the most.
+
+Then setup offers once to generate a formal verification skill with [`/create-formal-verification-skill`](../../skills/create-formal-verification-skill/SKILL.md), unless the project already has one. Tests check the cases someone thought to write. A formal verification skill checks one key property of your code, such as "a job never runs twice at once", in every case within a stated scope. Say yes when your code has concurrency, retries, a state machine, or a parser, where a bug is costly and tests rarely reach the case that breaks. Otherwise say no, and run it later if that changes. [Verify and ship](./06-verify-and-ship.md#prove-a-property-with-a-formal-verification-skill) covers it.
 
 After setup, start a new chat. The model file applies to new sessions.
 
